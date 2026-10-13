@@ -1,0 +1,13 @@
+@EndUserText.label: 'Service Definition for Einvoicing'
+define service Z_FI_EINV_SD {
+  expose Z_FI_EINV_P;
+  expose Z_EINV_CANCEL_VH;
+  expose Z_EINV_CANCEL_RSN_VH;
+  expose Z_EINV_VEHTYP_VH;
+  expose Z_EINV_TRANSMODE_VH;
+  expose I_CalendarDate;
+  expose Z_EINV_IRNSTATUS_VH;
+  expose Z_EINV_EWAYSTATUS_VH;
+  expose I_Supplier;
+  expose Z_EINV_TRANSMODE_DESC;
+}

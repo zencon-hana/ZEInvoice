@@ -1,0 +1,98 @@
+managed with additional save implementation in class ZBP_I_CUSTOMIZINGTABLEFOR_S unique;
+strict;
+with draft;
+define behavior for ZI_CustomizingTableFor_S alias CustomizingTableAll
+draft table ZCUST_TBL_D_S
+with unmanaged save
+lock master total etag LastChangedAtMax
+authorization master( none  )
+{
+  field ( readonly )
+   SingletonID;
+
+  field ( features : instance )
+   TransportRequestID;
+
+  field ( notrigger )
+   SingletonID,
+   LastChangedAtMax;
+
+
+  update;
+  internal create;
+  internal delete;
+
+  draft action ( features : instance ) Edit;
+  draft action Activate optimized;
+  draft action Discard;
+  draft action Resume;
+  draft determine action Prepare;
+  action  SelectCustomizingTransptReq parameter D_SelectCustomizingTransptReqP result [1] $self;
+
+  association _CustomizingTableFor { create ; with draft; }
+
+  validation ValidateTransportRequest on save ##NOT_ASSIGNED_TO_DETACT
+  {
+    create;
+    update;
+  }
+
+  side effects
+  {
+    action SelectCustomizingTransptReq affects
+        $self;
+  }
+
+}
+
+define behavior for ZI_CustomizingTableFor alias CustomizingTableFor ##UNMAPPED_FIELD
+persistent table ZCUST_TBL
+draft table ZCUST_TBL_D
+lock dependent by _CustomizingTableAll
+authorization dependent by _CustomizingTableAll
+{
+  field ( mandatory : create )
+   Apparea,
+   Fieldname,
+   Fieldvalue1;
+
+  field ( readonly )
+   SingletonID;
+
+  field ( readonly : update )
+   Apparea,
+   Fieldname,
+   Fieldvalue1;
+
+  field ( notrigger )
+   SingletonID;
+
+
+  update( features : global );
+  delete( features : global );
+
+  mapping for ZCUST_TBL
+  {
+    Apparea = APPAREA;
+    Fieldname = FIELDNAME;
+    Fieldvalue1 = FIELDVALUE1;
+    Fieldvalue2 = FIELDVALUE2;
+    Fieldvalue3 = FIELDVALUE3;
+    Fieldvalue4 = FIELDVALUE4;
+    CreatedBy = CREATED_BY;
+    CreatedAt = CREATED_AT;
+    LastChangedBy = LAST_CHANGED_BY;
+    LastChangedAt = LAST_CHANGED_AT;
+    Deleted = DELETED;
+  }
+
+  association _CustomizingTableAll { with draft; }
+
+  validation ValidateTransportRequest on save ##NOT_ASSIGNED_TO_DETACT
+  {
+    create;
+    update;
+    delete;
+  }
+
+}

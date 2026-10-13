@@ -1,0 +1,52 @@
+managed implementation in class zbp_zeinv_cockpit_i unique;
+strict ( 2 );
+
+define behavior for ZZEINV_COCKPIT_I //alias <alias_name>
+persistent table zzeinv_cockpit
+lock master
+authorization master ( instance )
+//etag master <field_name>
+{
+  create ( authorization : global );
+  update;
+  delete;
+  field ( readonly : update ) Bukrs, Docno, DocYear, DocType;
+  mapping for zzeinv_cockpit
+    {
+      Bukrs                     = bukrs;
+      Docno                     = docno;
+      DocYear                   = doc_year;
+      DocType                   = doc_type;
+      Odn                       = odn;
+      Irn                       = irn;
+      Version                   = version;
+      Bupla                     = bupla;
+      OdnDate                   = odn_date;
+      AckNo                     = ack_no;
+      AckDate                   = ack_date;
+      IrnStatus                 = irn_status;
+      CancelDate                = cancel_date;
+      EinvErnam                 = einv_ernam;
+      EinvErdat                 = einv_erdat;
+      SignedInv                 = signed_inv;
+      SignedQrcode              = signed_qrcode;
+      qrcodeurl                 = qrcodeurl;
+      einvoicepdf               = einvoicepdf;
+      ewaybillpdf               = ewaybillpdf;
+      EgenDat                   = egen_dat;
+      Vdtodate                  = vdtodate;
+      EwayErnam                 = eway_ernam;
+      EwayErdat                 = eway_erdat;
+      EwayBillNo                = eway_bill_no;
+      EwayStatus                = eway_status;
+      EwayCancelDate            = eway_cancel_date;
+      TransporterId             = transporter_id;
+      TransporterName           = transporter_name;
+      TransporterDocumentNumber = transporter_document_number;
+      TransporterDocumentDate   = transporter_document_date;
+      TransportationMode        = transportation_mode;
+      VehicleType               = vehicle_type;
+      TransportationDistance    = transportation_distance;
+      VehicleNumber             = vehicle_number;
+    }
+}

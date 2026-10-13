@@ -1,0 +1,5 @@
+@ObjectModel.leadingEntity.name: 'ZI_CustomizingTableFor_S'
+define service ZUI_CUSTOMIZINGTABLEFOR {
+  expose ZI_CUSTOMIZINGTABLEFOR_S as CustomizingTableAll;
+  expose ZI_CUSTOMIZINGTABLEFOR as CustomizingTableFor;
+}

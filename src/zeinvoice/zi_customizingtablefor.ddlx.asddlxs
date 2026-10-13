@@ -1,0 +1,106 @@
+@Metadata.layer: #CUSTOMER
+@UI: {
+  headerInfo: {
+    typeName: 'CustomizingTableFor',
+    typeNamePlural: 'CustomizingTableFors',
+    title: {
+      type: #STANDARD,
+      label: 'Customizing table for Global Configurati',
+      value: 'Apparea'
+    }
+  }
+}
+annotate view ZI_CustomizingTableFor with
+{
+  @UI.identification: [ {
+    position: 1
+  } ]
+  @UI.lineItem: [ {
+    position: 1
+  }]
+  @UI.facet: [ {
+    id: 'ZI_CustomizingTableFor',
+    purpose: #STANDARD,
+    type: #IDENTIFICATION_REFERENCE,
+    label: 'Customizing table for Global Configurati',
+    position: 1
+  } ]
+  Apparea;
+
+  @UI.identification: [ {
+    position: 2
+  } ]
+  @UI.lineItem: [ {
+    position: 2
+  } ]
+  Fieldname;
+
+  @UI.identification: [ {
+    position: 3
+  } ]
+  @UI.lineItem: [ {
+    position: 3
+  } ]
+  Fieldvalue1;
+
+  @UI.identification: [ {
+    position: 4
+  } ]
+  @UI.lineItem: [ {
+    position: 4
+  } ]
+  Fieldvalue2;
+
+  @UI.identification: [ {
+    position: 5
+  } ]
+  @UI.lineItem: [ {
+    position: 5
+  } ]
+  Fieldvalue3;
+
+  @UI.identification: [ {
+    position: 6
+  } ]
+  @UI.lineItem: [ {
+    position: 6
+  } ]
+  Fieldvalue4;
+
+  @UI.identification: [ {
+    position: 7
+  } ]
+  @UI.lineItem: [ {
+    position: 7
+  } ]
+  CreatedBy;
+
+  @UI.identification: [ {
+    position: 8
+  } ]
+  @UI.lineItem: [ {
+    position: 8
+  } ]
+  CreatedAt;
+
+  @UI.identification: [ {
+    position: 9
+  } ]
+  @UI.lineItem: [ {
+    position: 9
+  } ]
+  LastChangedBy;
+
+  @UI.identification: [ {
+    position: 10
+  } ]
+  @UI.lineItem: [ {
+    position: 10
+  } ]
+  LastChangedAt;
+
+  @UI.identification: [ {
+    position: 11
+  } ]
+  Deleted;
+}

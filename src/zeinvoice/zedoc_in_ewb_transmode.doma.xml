@@ -1,0 +1,54 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_DOMA" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <DD01V>
+    <DOMNAME>ZEDOC_IN_EWB_TRANSMODE</DOMNAME>
+    <DDLANGUAGE>E</DDLANGUAGE>
+    <DATATYPE>NUMC</DATATYPE>
+    <LENG>000003</LENG>
+    <OUTPUTLEN>000003</OUTPUTLEN>
+    <VALEXI>X</VALEXI>
+    <DDTEXT>Transport mode</DDTEXT>
+    <DOMMASTER>E</DOMMASTER>
+   </DD01V>
+   <DD07V_TAB>
+    <DD07V>
+     <DOMNAME>ZEDOC_IN_EWB_TRANSMODE</DOMNAME>
+     <VALPOS>0001</VALPOS>
+     <DDLANGUAGE>E</DDLANGUAGE>
+     <DOMVALUE_L>001</DOMVALUE_L>
+     <DDTEXT>Road</DDTEXT>
+    </DD07V>
+    <DD07V>
+     <DOMNAME>ZEDOC_IN_EWB_TRANSMODE</DOMNAME>
+     <VALPOS>0002</VALPOS>
+     <DDLANGUAGE>E</DDLANGUAGE>
+     <DOMVALUE_L>002</DOMVALUE_L>
+     <DDTEXT>Rail</DDTEXT>
+    </DD07V>
+    <DD07V>
+     <DOMNAME>ZEDOC_IN_EWB_TRANSMODE</DOMNAME>
+     <VALPOS>0003</VALPOS>
+     <DDLANGUAGE>E</DDLANGUAGE>
+     <DOMVALUE_L>003</DOMVALUE_L>
+     <DDTEXT>Air</DDTEXT>
+    </DD07V>
+    <DD07V>
+     <DOMNAME>ZEDOC_IN_EWB_TRANSMODE</DOMNAME>
+     <VALPOS>0004</VALPOS>
+     <DDLANGUAGE>E</DDLANGUAGE>
+     <DOMVALUE_L>004</DOMVALUE_L>
+     <DDTEXT>Ship</DDTEXT>
+    </DD07V>
+    <DD07V>
+     <DOMNAME>ZEDOC_IN_EWB_TRANSMODE</DOMNAME>
+     <VALPOS>0005</VALPOS>
+     <DDLANGUAGE>E</DDLANGUAGE>
+     <DOMVALUE_L>005</DOMVALUE_L>
+     <DDTEXT>In Transit</DDTEXT>
+    </DD07V>
+   </DD07V_TAB>
+  </asx:values>
+ </asx:abap>
+</abapGit>

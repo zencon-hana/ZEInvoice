@@ -1,0 +1,7 @@
+abstract;
+strict ( 2 );
+with hierarchy;
+define behavior for Z_EINV_CANCEL_ST with control //alias <alias_name>
+{
+  field ( mandatory : execute ) CancelRemark, CancelType;
+}

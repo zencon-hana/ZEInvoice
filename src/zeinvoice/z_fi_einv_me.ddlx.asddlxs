@@ -1,0 +1,190 @@
+@Metadata.layer: #CORE
+
+@UI: {
+  headerInfo: {
+    typeName: 'E-Document',
+    typeNamePlural: 'E-Documents',
+    title: { type: #STANDARD, value: 'DocumentNumber' },
+    description: { type: #STANDARD, value: 'CustomerName' }
+  }
+}
+
+annotate view Z_FI_EINV_P with
+{
+  @UI.facet: [ { id:              'General',
+                purpose:         #STANDARD,
+                type:            #IDENTIFICATION_REFERENCE,
+                label:           'General Information',
+                position:        10 } ]
+
+  @UI: { lineItem:       [ { position: 10, importance: #HIGH },
+                            { type: #FOR_ACTION, position: 10, dataAction: 'GenerateEinvoice', label:'Generate e-invoice', invocationGrouping: #CHANGE_SET },
+                            { type: #FOR_ACTION, position: 20, dataAction: 'GenerateEwayBill', label:'Generate ewaybill', invocationGrouping: #CHANGE_SET },
+                            { type: #FOR_ACTION, position: 30, dataAction: 'UpdtTransdtl', label:'Transporter Detail', invocationGrouping: #CHANGE_SET },
+                            { type: #FOR_ACTION, position: 40, dataAction: 'CancelEinvoice', label:'Cancel Eway/Einvoice', invocationGrouping: #CHANGE_SET }],
+         selectionField: [ { position: 10 } ] }
+  CompanyCode;
+
+  @UI: { selectionField: [ { position: 20 } ] }
+  FiscalYear;
+
+  @UI: { lineItem:       [ { position: 20, importance: #HIGH,type: #WITH_URL, url: 'DynamicNavUrl' } ],
+         selectionField: [ { position: 30 } ],
+         identification: [ { position: 10 } ] }
+  @EndUserText.label: 'Document Number'
+  DocumentNumber;
+
+  @UI: { lineItem:       [ { position: 25, importance: #HIGH } ],
+         selectionField: [ { position: 35 } ] }
+  @EndUserText.label: 'Invoice Number'
+  Reference;
+
+  @UI: { lineItem:       [ { position: 30, importance: #MEDIUM } ],
+         selectionField: [ { position: 40 } ]}
+  @Consumption.valueHelpDefinition: [{
+         qualifier: '',
+         entity: {
+             name: 'Z_EINV_SOURCEMODULE_VH',
+             element: 'SourceModule'
+         },
+         distinctValues: true,
+         useForValidation: true}]
+  @Consumption.filter: {
+      mandatory: true,
+      defaultValue: 'SD',
+      selectionType:#SINGLE
+  }
+  SourceModule;
+
+  @UI: { lineItem:       [ { position: 40, importance: #MEDIUM } ],
+         identification: [ { position: 20 } ] }
+  @EndUserText.label: 'Document Type'
+  DocumentType;
+
+  @UI: { lineItem:       [ { position: 50, importance: #MEDIUM } ],
+         selectionField: [ { position: 50 } ] }
+  @Consumption.filter: {selectionType: #INTERVAL, multipleSelections: false, mandatory: false}
+  // @Consumption.derivation: {
+  //    lookupEntity: 'I_CalendarDate',
+  //    resultElement: 'FirstDayOfMonthDate',
+  //    resultElementHigh: 'LastDayOfMonthDate',
+  //    binding: [ { targetElement: 'CalendarDate', type: #SYSTEM_FIELD, value: '#SYSTEM_DATE' } ]
+  //  }
+  @EndUserText.label: 'Invoice date '
+  PostingDate;
+  @EndUserText.label: 'Creattion date '
+  CreationDate;
+  @EndUserText.label: 'Creation Time'
+  CreationTime;
+  @UI: { selectionField: [ { position: 60 } ] }
+  Customer;
+
+  @UI: { lineItem:       [ { position: 60, importance: #HIGH } ] }
+  CustomerName;
+
+  @UI: { lineItem:       [ { position: 61, importance: #HIGH } ] }
+  CityName;
+
+
+  @UI: { lineItem:       [ { position: 70, importance: #HIGH } ],
+         identification: [ { position: 30 } ] }
+  TotalAmount;
+  @EndUserText.label: 'Transporter Details'
+  @UI.lineItem: [{ position: 75,  importance: #HIGH,criticality: 'TransporterCriticality' }]
+  @UI.dataPoint: { criticality: 'TransporterCriticality', title: 'Transporter Status' }
+  TransporterStatusMsg;
+  @UI: { lineItem:       [ { position: 80, importance: #HIGH, criticality: 'StatusCriticality', label: 'IRN Status' } ],
+         selectionField: [ { position: 70 } ],
+         identification: [ { position: 40, criticality: 'StatusCriticality' } ] }
+  @Consumption.valueHelpDefinition: [{
+          qualifier: '',
+          entity: {
+              name: 'Z_EINV_IRNSTATUS_VH',
+              element: 'IRNStatus'
+          },
+          distinctValues: true,
+          useForValidation: true}]
+
+  IRNStatus;
+
+  @UI: { lineItem:       [ { position: 90, importance: #MEDIUM ,  type: #WITH_URL,url: 'qrcodeurl'} ],
+         identification: [ { position: 50 } ] }
+  AckNo;
+
+  @UI: { lineItem:       [ { position: 100, importance: #LOW } ],
+         identification: [ { position: 60 } ] }
+  AckDate;
+
+  @UI: { lineItem:       [ { position: 110, importance: #LOW ,  type: #WITH_URL,url: 'einvoicepdf'} ],
+         identification: [ { position: 70 } ] }
+  IRN;
+  @UI: { lineItem:       [ { position: 120, importance: #LOW ,  type: #WITH_URL,url: 'ewaybillpdf'} ],
+           identification: [ { position: 80 } ] }
+  EWayBillNo;
+  @Consumption.valueHelpDefinition: [{
+         qualifier: '',
+         entity: {
+             name: 'Z_EINV_EWAYSTATUS_VH',
+             element: 'EwayStatus'
+         },
+         distinctValues: true,
+         useForValidation: true}]
+  EWayStatus;
+  // Hide the criticality helper field from UI
+  @UI.hidden: true
+  StatusCriticality;
+
+  @UI.hidden: true
+  TransporterCriticality;
+  @UI: { identification: [ { position: 90 } ] }
+  @UI.fieldGroup: [{ qualifier: 'MassEdit' ,position: 10 }]
+  @Consumption.valueHelpDefinition: [{
+      entity                : { name: 'I_Supplier', element: 'TaxNumber3' },
+
+      additionalBinding     : [
+          { localElement    : 'TransporterName', element: 'SupplierName' }
+      ]
+  }]
+  TransporterId;
+  @UI: { identification: [ { position: 100 } ] }
+  @UI.fieldGroup: [{ qualifier: 'MassEdit' ,position: 20 }]
+  TransporterName;
+  @UI: { identification: [ { position: 110 } ] }
+  @UI.fieldGroup: [{ qualifier: 'MassEdit'  ,position: 30}]
+  TransporterDocumentNumber;
+  @UI: { identification: [ { position: 120 } ] }
+  @EndUserText.label: 'Transport Doc Date'
+  @UI.fieldGroup: [{ qualifier: 'MassEdit' ,position: 40}]
+  TransporterDocumentDate;
+  @UI: { identification: [ { position: 130 } ] }
+  @Consumption.valueHelpDefinition: [{
+      entity                : {
+          name              : 'Z_EINV_TRANSMODE_DESC',
+          element           : 'transportationmode'
+      },
+      distinctValues        : true,
+      useForValidation      : true
+  }]
+  @UI.fieldGroup: [{ qualifier: 'MassEdit'  ,position: 50}]
+  TransportationMode;
+  @UI: { identification: [ { position: 140 } ] }
+  @UI.fieldGroup: [{ qualifier: 'MassEdit' ,position: 60}]
+  @Consumption.valueHelpDefinition: [{
+     entity               : {
+         name             : 'Z_EINV_VEHTYP_VH',
+         element          : 'vehicletype'
+     },
+     distinctValues       : true,
+     useForValidation     : true
+  }]
+  VehicleType;
+  @UI: { identification: [ { position: 150 } ] }
+  @EndUserText.label: 'Transport Distance in KM'
+  @UI.fieldGroup: [{ qualifier: 'MassEdit' ,position: 70}]
+  TransportationDistance;
+  @UI: { identification: [ { position: 160 } ] }
+  @UI.fieldGroup: [{ qualifier: 'MassEdit' ,position: 80}]
+  VehicleNumber;
+  @UI.selectionField: [{ position: 80  }]
+  _AddFields;
+}

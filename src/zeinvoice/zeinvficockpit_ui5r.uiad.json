@@ -1,0 +1,34 @@
+{
+  "formatVersion": "2",
+  "header": {
+    "description": "Custom Einvoice Document Cockpit",
+    "originalLanguage": "en",
+    "abapLanguageVersion": "cloudDevelopment"
+  },
+  "generalInformation": {
+    "appType": "ui5",
+    "catalogId": "SAP_TC_UI5_REPO_UIAD",
+    "targetMappingTitle": "Custom Einvoice Document Cockpit"
+  },
+  "ui5AppDetails": {
+    "appId": "zeinvfi"
+  },
+  "navigation": {
+    "targetMappingId": "UI5R_81F5A1306D33A8168B6DD1D87AA19C25B81E7CA8_TM",
+    "semanticObject": "ZEINVFICOCKPIT",
+    "action": "display",
+    "desktop": true,
+    "tablet": true,
+    "phone": true
+  },
+  "tiles": [
+    {
+      "id": "UI5R_81F5A1306D33A8168B6DD1D87AA19C25B81E7CA8_AL",
+      "tileType": "static",
+      "isDefault": true,
+      "standard": {
+        "title": "Custom Einvoice Document Cockpit"
+      }
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+unmanaged implementation in class zbp_fi_einv_tp unique;
+strict ( 2 );
+define behavior for Z_FI_EINV_TP //alias <alias_name>
+//late numbering
+lock master
+authorization master ( instance )
+//etag master <field_name>
+{
+  create ( authorization : global );
+  update ( features : instance );
+  delete;
+  field ( readonly ) CompanyCode, FiscalYear, DocumentNumber, SourceModule,
+  SourceModuleText, DocumentType, DocumentDate, PostingDate,
+  Reference, Customer, CustomerName, TotalAmount, TransactionCurrency,
+  EInvStatus, AckNo, AckDate, IRN, IRNStatus, IRNStatusText,
+  EWayBillNo, EWayStatus, EwayStatusText, qrcodeurl,
+  einvoicepdf, ewaybillpdf, StatusCriticality,
+  TransporterCriticality, TransporterStatusMsg;
+  field ( features : instance ) TransporterId, TransporterName, TransporterDocumentNumber,
+  TransporterDocumentDate, TransportationMode, VehicleType,
+  TransportationDistance, VehicleNumber;
+  action ( features : instance ) GenerateEinvoice;
+  action ( features : instance ) DownloadEinvoice result [0..1] ZEWAYPAYLOADDWNLD;
+  action ( features : instance ) DownloadEway result [0..1] ZEWAYPAYLOADDWNLD;
+  action ( features : instance ) CancelEinvoice deep parameter Z_EINV_CANCEL_ST;
+  action ( features : instance ) UpdtTransdtl deep parameter Z_EINV_EXPORT_ST { default function GetDefaultsForTransport; }
+  action ( features : instance ) GenerateEwayBill;
+}

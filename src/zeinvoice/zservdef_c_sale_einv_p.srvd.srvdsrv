@@ -1,0 +1,7 @@
+@EndUserText.label: 'Service defintion for sales Einvoicing'
+define service ZSERVDEF_C_SALE_EINV_P {
+  expose ZC_SALE_EINV_P;
+  expose I_OutboundDelivery;
+  expose I_BillingDocument;
+  expose C_BOMMaterialVH;
+}

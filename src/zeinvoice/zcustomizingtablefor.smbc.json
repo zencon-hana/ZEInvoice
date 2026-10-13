@@ -1,0 +1,37 @@
+{
+  "formatVersion": "1",
+  "header": {
+    "description": "Maintain Customizing table for Global Configurati",
+    "originalLanguage": "en",
+    "abapLanguageVersion": "cloudDevelopment"
+  },
+  "serviceConfiguration": {
+    "serviceBinding": "ZUI_CUSTOMIZINGTABLEFOR_O4",
+    "serviceName": "ZUI_CUSTOMIZINGTABLEFOR_O4",
+    "serviceVersion": "0001",
+    "rootEntitySet": "CustomizingTableAll",
+    "name": "Customizing table for Global Configurati",
+    "transportObject": "ZCUSTOMIZINGTABLEFORT",
+    "configurationGroup": "",
+    "skipRootEntity": true,
+    "enableFileUpload": false
+  },
+  "appConfiguration": {
+    "listReport": {},
+    "objectPages": [
+      {
+        "entitySet": "CustomizingTableAll",
+        "variantManagement": "control",
+        "showTransportSelectionStrip": true
+      }
+    ],
+    "tableSettings": [
+      {
+        "entitySet": "CustomizingTableFor",
+        "selectAll": true,
+        "rowCountMode": "auto",
+        "frozenColumnCount": 3
+      }
+    ]
+  }
+}
