@@ -21,7 +21,8 @@ annotate view Z_FI_EINV_P with
                             { type: #FOR_ACTION, position: 10, dataAction: 'GenerateEinvoice', label:'Generate e-invoice', invocationGrouping: #CHANGE_SET },
                             { type: #FOR_ACTION, position: 20, dataAction: 'GenerateEwayBill', label:'Generate ewaybill', invocationGrouping: #CHANGE_SET },
                             { type: #FOR_ACTION, position: 30, dataAction: 'UpdtTransdtl', label:'Transporter Detail', invocationGrouping: #CHANGE_SET },
-                            { type: #FOR_ACTION, position: 40, dataAction: 'CancelEinvoice', label:'Cancel Eway/Einvoice', invocationGrouping: #CHANGE_SET }],
+                            { type: #FOR_ACTION, position: 40, dataAction: 'CancelEinvoice', label:'Cancel Eway/Einvoice', invocationGrouping: #CHANGE_SET },
+                            { type: #FOR_ACTION, position: 50, dataAction: 'GeneratePartB', label:'Create Part B of Eway Bill', invocationGrouping: #CHANGE_SET }],
          selectionField: [ { position: 10 } ] }
   CompanyCode;
 
@@ -77,8 +78,7 @@ annotate view Z_FI_EINV_P with
   @EndUserText.label: 'Creation Time'
   CreationTime;
   @UI: { selectionField: [ { position: 60 } ] }
-  Customer;
-
+  @Consumption.valueHelpDefinition: [{ entity: { name: 'I_Customer_VH', element: 'Customer' }}] //Added by SR on 24.07.2026  
   @UI: { lineItem:       [ { position: 60, importance: #HIGH } ] }
   CustomerName;
 

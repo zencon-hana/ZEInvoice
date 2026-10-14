@@ -13,8 +13,7 @@
     "name": "Customizing table for Global Configurati",
     "transportObject": "ZCUSTOMIZINGTABLEFORT",
     "configurationGroup": "",
-    "skipRootEntity": true,
-    "enableFileUpload": false
+    "skipRootEntity": true
   },
   "appConfiguration": {
     "listReport": {},
@@ -30,7 +29,8 @@
         "entitySet": "CustomizingTableFor",
         "selectAll": true,
         "rowCountMode": "auto",
-        "frozenColumnCount": 3
+        "frozenColumnCount": 3,
+        "threshold": 10
       }
     ]
   }

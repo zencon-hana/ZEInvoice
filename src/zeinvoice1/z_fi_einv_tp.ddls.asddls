@@ -28,6 +28,7 @@ define root view entity Z_FI_EINV_TP
       EInvStatus,
       AckNo,
       AckDate,
+      AckTime,
       IRN,
       IRNStatus,
       _IRNStatus.IRNStatusText,
@@ -46,6 +47,7 @@ define root view entity Z_FI_EINV_TP
       VehicleType,
       TransportationDistance,
       VehicleNumber,
+      flag,
       /* Logic to check if Transporter Details exist */
       case
         when TransporterId is not initial

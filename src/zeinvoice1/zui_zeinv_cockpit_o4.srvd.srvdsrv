@@ -1,0 +1,11 @@
+@EndUserText: {
+  label: 'Service Definition for ZC_ZEINV_COCKPIT'
+}
+@ObjectModel: {
+  leadingEntity: {
+    name: 'ZC_ZEINV_COCKPIT'
+  }
+}
+define service ZUI_ZEINV_COCKPIT_O4 provider contracts odata_v4_ui {
+  expose ZC_ZEINV_COCKPIT;
+}

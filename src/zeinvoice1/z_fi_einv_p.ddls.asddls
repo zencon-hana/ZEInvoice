@@ -38,6 +38,7 @@ define root view entity Z_FI_EINV_P
       EInvStatus,
       AckNo,
       AckDate,
+      AckTime,
       IRN,
       @ObjectModel.text.element: [ 'IRNStatusText' ]
       IRNStatus,

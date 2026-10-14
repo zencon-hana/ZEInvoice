@@ -13,5 +13,6 @@ define behavior for Z_FI_EINV_P //alias <alias_name>
   use action DownloadEway;
   use action GenerateEwayBill;
   use action UpdtTransdtl;
+  use action GeneratePartB;
   use function GetDefaultsForTransport;
 }

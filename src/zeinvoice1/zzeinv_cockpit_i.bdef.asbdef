@@ -24,6 +24,7 @@ authorization master ( instance )
       OdnDate                   = odn_date;
       AckNo                     = ack_no;
       AckDate                   = ack_date;
+      AckTime                   = ack_time;
       IrnStatus                 = irn_status;
       CancelDate                = cancel_date;
       EinvErnam                 = einv_ernam;
@@ -48,5 +49,6 @@ authorization master ( instance )
       VehicleType               = vehicle_type;
       TransportationDistance    = transportation_distance;
       VehicleNumber             = vehicle_number;
+      flag                      = flag;
     }
 }

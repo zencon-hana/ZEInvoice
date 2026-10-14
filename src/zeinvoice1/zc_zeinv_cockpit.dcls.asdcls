@@ -1,0 +1,6 @@
+@EndUserText.label: 'ZC_ZEINV_COCKPIT'
+@MappingRole: true
+define role ZC_ZEINV_COCKPIT {
+  grant select on ZC_ZEINV_COCKPIT
+  where INHERITING CONDITIONS FROM ENTITY ZR_ZEINV_COCKPIT REPLACING { ROOT WITH _BaseEntity };
+}

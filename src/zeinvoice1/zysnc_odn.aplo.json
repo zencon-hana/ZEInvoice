@@ -1,0 +1,14 @@
+{
+  "formatVersion": "1",
+  "header": {
+    "description": "ZYSNC_ODN",
+    "originalLanguage": "en",
+    "abapLanguageVersion": "cloudDevelopment"
+  },
+  "subobjects": [
+    {
+      "name": "ZYSNC_ODN",
+      "description": "ZYSNC_ODN"
+    }
+  ]
+}

@@ -6,5 +6,5 @@ define behavior for ZC_SALE_EINV_P //alias <alias_name>
   use update;
 
   use action CreateSuccessorDocs;
-  use action GenerateEinvoice;
+//  use action GenerateEinvoice;
 }

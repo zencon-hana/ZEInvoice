@@ -41,6 +41,7 @@ define root view entity Z_FI_EINV
 
       Status.ack_no                      as AckNo,
       Status.ack_date                    as AckDate,
+      Status.ack_time                    as AckTime,
       Status.irn                         as IRN,
       case
         when Status.irn_status is null or Status.irn_status = ''  then 'NGN'
@@ -65,6 +66,7 @@ define root view entity Z_FI_EINV
       Status.vehicle_type                as VehicleType,
       Status.transportation_distance     as TransportationDistance,
       Status.vehicle_number              as VehicleNumber,
+      Status.flag                        as flag,
       // Color Coding for UI (Criticality)
       case
         when Status.irn_status = 'ACT' then 3 // Green

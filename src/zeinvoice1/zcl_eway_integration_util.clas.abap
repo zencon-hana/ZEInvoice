@@ -4,6 +4,8 @@ CLASS zcl_eway_integration_util DEFINITION
  CREATE PRIVATE .
 
   PUBLIC SECTION.
+    DATA: lv_systid  TYPE zfieldvalue2,
+          lv_payload TYPE string.
     TYPES : BEGIN OF ty_rqst,
               username      TYPE string,
               password      TYPE string,
@@ -441,6 +443,59 @@ CLASS zcl_eway_integration_util DEFINITION
     TYPES: BEGIN OF ty_json_root_exception,
              results TYPE ty_ewb_res_exception,
            END OF ty_json_root_exception.
+
+    """"""""""""""""""""""""'added by trupti for creating part B of eway bill
+
+    TYPES : BEGIN OF ty_partb,
+              access_token                TYPE string,
+              userGstin                   TYPE string,
+              eway_bill_number            TYPE string,
+              vehicle_number              TYPE string,
+              vehicle_type                TYPE string,
+              place_of_consignor          TYPE string,
+              state_of_consignor          TYPE string,
+              reason_code                 TYPE string,
+              reason_for_vehicle_updation TYPE string,
+              transporter_document_number TYPE string,
+              transporter_document_date   TYPE string,
+              mode_of_transport           TYPE string,
+              data_source                 TYPE string,
+            END OF ty_partb.
+
+
+
+*    TYPES : BEGIN OF ty_mesg,
+*              vehupddate TYPE string,
+*              validupto  TYPE string,
+*              error      TYPE string,
+*              url        TYPE string,
+*            END OF ty_mesg.
+*
+*    TYPES : BEGIN OF ty_resp_partb,
+*              results TYPE ty_mesg,
+*              status  TYPE string,
+*              code    TYPE string,
+*            END OF ty_resp_partb.
+
+
+TYPES: BEGIN OF ty_message,
+         vehupddate TYPE string,
+         validupto  TYPE string,
+         error      TYPE abap_bool,
+         url        TYPE string,
+       END OF ty_message.
+
+TYPES: BEGIN OF ty_results,
+         message TYPE ty_message,
+         status  TYPE string,
+         code    TYPE i,
+       END OF ty_results.
+
+TYPES: BEGIN OF ty_resp_partb,
+         results TYPE ty_results,
+       END OF TY_RESP_partb.
+
+    """"""""""""""""""""""""end
     CLASS-DATA:mt_customizing TYPE STANDARD TABLE OF zi_customizingtablefor,
                mt_compliance  TYPE STANDARD TABLE OF zzeinv_cockpit.
     CLASS-METHODS get_instance RETURNING VALUE(ro_eway_util) TYPE REF TO zcl_eway_integration_util .
@@ -523,7 +578,15 @@ CLASS zcl_eway_integration_util DEFINITION
           iv_token            TYPE string
         EXPORTING
           VALUE(eway_payload) TYPE string
-          VALUE(rs_input)     TYPE ts_ewb_by_irn_input.
+          VALUE(rs_input)     TYPE ts_ewb_by_irn_input,
+      generatepartb
+        IMPORTING im_token             TYPE string
+                  im_billingdoc        TYPE i_billingdocument-billingdocument
+                  im_bukrs             TYPE i_journalentry-companycode
+                  im_gjahr             TYPE i_journalentry-fiscalyear
+        EXPORTING REFERENCE(et_return) TYPE tty_return
+                  ET_resp              type ty_resp_partb
+                  et_pdfurl            TYPE string.
     " --- NEW: Application Log Helper ---
 
   PROTECTED SECTION.
@@ -548,8 +611,30 @@ CLASS ZCL_EWAY_INTEGRATION_UTIL IMPLEMENTATION.
     DATA:wa_ewbl TYPE ty_ewbl,
          lt_item TYPE tty_item,
          wa_rslt TYPE ty_rslt.
-    DATA(lv_baseurl) = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue3.
-    DATA(lv_ewaybill) = mt_customizing[   fieldname = 'LOGIN' fieldvalue1 = 'EWAYBILL_GENERATE' ]-fieldvalue3.
+    CLEAR:eway_bill_number,et_return.
+    " 1. Get System ID using Cloud API
+    DATA(lo_current_tenant) = xco_cp=>current->tenant( ).
+*
+*
+*      " 2. Get the URL object (e.g., for UI)
+    DATA(lo_url) = lo_current_tenant->get_url( xco_cp_tenant=>url_type->ui ).
+*
+*      " 3. Get the actual string value
+    DATA(lv_host) = lo_url->get_host( ).
+*      DATA(lv_sysid) = 'DEV'.
+    READ TABLE mt_customizing INTO DATA(wa_eway_custmizing) WITH KEY fieldname = 'S4SYSTYPE' fieldvalue1 = lv_host.
+    IF sy-subrc EQ 0.
+      DATA(lv_sysid) = wa_eway_custmizing-fieldvalue2.
+    ENDIF.
+
+    IF lv_sysid = 'PRD'.
+      DATA(lv_baseurl) = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue2.
+      DATA(lv_ewaybill) = mt_customizing[   fieldname = 'LOGIN' fieldvalue1 = 'EWAYBILL_GENERATE' ]-fieldvalue2.
+    ELSE.
+      lv_baseurl = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue3.
+      lv_ewaybill = mt_customizing[   fieldname = 'LOGIN' fieldvalue1 = 'EWAYBILL_GENERATE' ]-fieldvalue3.
+    ENDIF.
+
     CONCATENATE lv_baseurl lv_ewaybill  INTO DATA(lv_ewaybill_url).
     TRY.
         DATA(lv_dest) = cl_http_destination_provider=>create_by_url( i_url =   lv_ewaybill_url  ).
@@ -723,15 +808,15 @@ CLASS ZCL_EWAY_INTEGRATION_UTIL IMPLEMENTATION.
         AND partnerfunction IN ( 'Z1', 'CR' )
       INTO TABLE @DATA(lt_doc_partners).
 
-""--------fetch partner function data from delivery
-if lt_bill_items is not initial.
-    SELECT partnerfunction, customer, addressid
-      FROM I_OutboundDeliveryPartnerTP
-      for all entries in @lt_bill_items
-      WHERE OutboundDelivery = @lt_bill_items-referencesddocument
-        AND partnerfunction = 'WE'
-      INTO TABLE @DATA(lt_ship).
-endif.
+    ""--------fetch partner function data from delivery
+    IF lt_bill_items IS NOT INITIAL.
+      SELECT partnerfunction, customer, addressid
+        FROM i_outbounddeliverypartnertp
+        FOR ALL ENTRIES IN @lt_bill_items
+        WHERE outbounddelivery = @lt_bill_items-referencesddocument
+          AND partnerfunction = 'WE'
+        INTO TABLE @DATA(lt_ship).
+    ENDIF.
 
     DATA: lt_cust_keys TYPE STANDARD TABLE OF i_customer WITH EMPTY KEY.
 
@@ -762,7 +847,7 @@ endif.
         INTO TABLE @DATA(lt_customer_data).
     ENDIF.
 
-    IF LT_SHIP IS NOT INITIAL.
+    IF lt_ship IS NOT INITIAL.
       SELECT customer,
              customername,
              taxnumber3,
@@ -773,10 +858,10 @@ endif.
              addressid,
              country
         FROM i_customer
-        FOR ALL ENTRIES IN @lt_SHIP "#EC CI_NO_TRANSFORM
-        WHERE customer = @lt_SHIP-Customer
+        FOR ALL ENTRIES IN @lt_ship                "#EC CI_NO_TRANSFORM
+        WHERE customer = @lt_ship-customer
         APPENDING TABLE @lt_customer_data.
-      ENDIF.
+    ENDIF.
     READ TABLE mt_customizing INTO DATA(wa_eway_custmizing) WITH KEY fieldname = 'GSTIN'.
 
     SELECT SINGLE plant FROM i_billingdocumentitem WHERE billingdocument = @ls_bill_head-billingdocument INTO @DATA(lv_plant).
@@ -865,37 +950,42 @@ endif.
 *      ls_payload-buyer_details-state_code = 'TELANGANA'.
 *
 *      ls_payload-buyer_details-place_of_supply = '36'.
-IF ls_buyer-country <> 'IN'.
-    READ TABLE lt_doc_partners INTO DATA(ls_partner_z1) WITH KEY partnerfunction = 'Z1'.
-    IF sy-subrc EQ 0.
-      READ TABLE lt_customer_data INTO DATA(ls_ship_to) WITH KEY customer = ls_partner_z1-customer.
-      IF sy-subrc = 0.
-        DATA(v_ship_to_addr_id) = ls_ship_to-addressid.
-      ENDIF.
-      ls_payload-ship_details-gstin = 'URP'. " Needs to check
-      ls_payload-ship_details-legal_name = ls_ship_to-customername.
-      ls_payload-ship_details-trade_name = ls_ship_to-customername.
-      ls_payload-ship_details-location   = ls_ship_to-cityname.
-      ls_payload-ship_details-pincode    = ls_ship_to-postalcode.
-      ls_payload-ship_details-address1   = ls_ship_to-streetname.
-
-      READ TABLE mt_customizing INTO wa_eway_custmizing WITH KEY fieldname = 'STATECODELIST' fieldvalue3 = ls_ship_to-region.
+    IF ls_buyer-country <> 'IN'.
+      READ TABLE lt_doc_partners INTO DATA(ls_partner_z1) WITH KEY partnerfunction = 'Z1'.
       IF sy-subrc EQ 0.
-        ls_payload-ship_details-state_code = wa_eway_custmizing-fieldvalue2.
-        ls_payload-ship_details-place_of_supply = wa_eway_custmizing-fieldvalue1.
-      ENDIF.
-    ENDIF.
-else.
-""""""""""""""""""""""""FOR NORMAL SHIP TO  CASE
+        READ TABLE lt_customer_data INTO DATA(ls_ship_to) WITH KEY customer = ls_partner_z1-customer.
+        IF sy-subrc = 0.
+          DATA(v_ship_to_addr_id) = ls_ship_to-addressid.
+        ENDIF.
+        ls_payload-ship_details-gstin = 'URP'. " Needs to check
+        ls_payload-ship_details-legal_name = ls_ship_to-customername.
+        ls_payload-ship_details-trade_name = ls_ship_to-customername.
+        ls_payload-ship_details-location   = ls_ship_to-cityname.
+        ls_payload-ship_details-pincode    = ls_ship_to-postalcode.
+        ls_payload-ship_details-address1   = ls_ship_to-streetname.
 
- READ TABLE lt_SHIP INTO DATA(ls_SHIP) WITH KEY partnerfunction = 'WE'.
-    IF sy-subrc EQ 0.
-      READ TABLE lt_customer_data INTO DATA(ls_shipto) WITH KEY customer = ls_SHIP-Customer.
-      IF ls_ship-customer ne ls_buyer-Customer.
+        READ TABLE mt_customizing INTO wa_eway_custmizing WITH KEY fieldname = 'STATECODELIST' fieldvalue3 = ls_ship_to-region.
+        IF sy-subrc EQ 0.
+          ls_payload-ship_details-state_code = wa_eway_custmizing-fieldvalue2.
+          ls_payload-ship_details-place_of_supply = wa_eway_custmizing-fieldvalue1.
+        ENDIF.
+      ENDIF.
+    ELSE.
+      """"""""""""""""""""""""FOR NORMAL SHIP TO  CASE
+
+      READ TABLE lt_ship INTO DATA(ls_ship) WITH KEY partnerfunction = 'WE'.
+      IF sy-subrc EQ 0.
+        READ TABLE lt_customer_data INTO DATA(ls_shipto) WITH KEY customer = ls_ship-customer.
+        IF ls_ship-customer NE ls_buyer-customer.
           IF sy-subrc = 0.
             DATA(lv_ship_to_addr_id) = ls_shipto-addressid.
           ENDIF.
-          ls_payload-ship_details-gstin      = ls_shipto-TaxNumber3. " Needs to check
+
+*          if ls_shipto-taxnumber3 is not initial.
+*             ls_payload-ship_details-gstin      = ls_shipto-taxnumber3.
+*          else.
+          ls_payload-ship_details-gstin      = ls_shipto-taxnumber3.
+*          endif.
           ls_payload-ship_details-legal_name = ls_shipto-customername.
           ls_payload-ship_details-trade_name = ls_shipto-customername.
           ls_payload-ship_details-location   = ls_shipto-cityname.
@@ -907,10 +997,10 @@ else.
             ls_payload-ship_details-state_code = wa_eway_custmizing-fieldvalue2.
             ls_payload-ship_details-place_of_supply = wa_eway_custmizing-fieldvalue1.
           ENDIF.
-          ENDIF.
-    endif.
-  endif.
-""""""""""""""""""""""""""""""""""""""END
+        ENDIF.
+      ENDIF.
+    ENDIF.
+    """"""""""""""""""""""""""""""""""""""END
 
     IF ls_buyer-country <> 'IN'.
       ls_payload-transaction_details-supply_type = 'EXPWOP'.
@@ -1030,7 +1120,11 @@ else.
       ls_payload-ewaybill_details-transporter_document_number = ls_irn-transporterdocumentnumber.
       ls_payload-ewaybill_details-vehicle_number              = ls_irn-vehiclenumber.
       ls_payload-ewaybill_details-transporter_name            = ls_irn-transportername.
-      ls_payload-ewaybill_details-transportation_mode         = '1'. "ls_irn-TransportationMode.
+      if ls_irn-TransportationMode = 000.
+         ls_payload-ewaybill_details-transportation_mode         = ' '.
+      else.
+      ls_payload-ewaybill_details-transportation_mode         = '1'. "ls_irn-TransportationMode
+      endif.
       ls_payload-ewaybill_details-vehicle_type                = ls_irn-vehicletype.
       ls_payload-ewaybill_details-transportation_distance     = ls_irn-transportationdistance.
       IF ls_irn-transportationdistance = 00000.
@@ -1039,6 +1133,12 @@ else.
         ls_payload-ewaybill_details-transportation_distance     = ls_irn-transportationdistance.
       ENDIF.
     ENDIF.
+
+    DATA : lv_dist TYPE string.
+    lv_dist = ls_payload-ewaybill_details-transportation_distance.
+    CONDENSE lv_dist.
+    ls_payload-ewaybill_details-transportation_distance = lv_dist..
+
     " --- 8. Product Mapping (HSN & EAN) ---
     IF lt_bill_items IS NOT INITIAL.
       SELECT product, plant, consumptiontaxctrlcode
@@ -1102,16 +1202,59 @@ else.
         " --- NEW: CURRENCY CONVERSION LOGIC ---
         " Convert Document Currency to INR
         " Calculate Total Amount in INR
-        READ TABLE lt_pricing INTO DATA(wa_price) WITH KEY billingdocument = ls_item-billingdocument
+        READ TABLE lt_pricing INTO DATA(wa_disc) WITH KEY billingdocument     = ls_item-billingdocument
+                                                          billingdocumentitem = ls_item-billingdocumentitem
+                                                          conditiontype       = 'ZHDV'.
+        IF sy-subrc = 0.
+          ls_json_item-discount =  wa_disc-conditionamount  * lv_exchange_rate  * -1.
+        ENDIF.
+        CLEAR : wa_disc.
+
+        READ TABLE lt_pricing INTO wa_disc WITH KEY billingdocument     = ls_item-billingdocument
+                                                          billingdocumentitem = ls_item-billingdocumentitem
+                                                          conditiontype       = 'ZHDP'.
+        IF sy-subrc = 0.
+          ls_json_item-discount =  wa_disc-conditionamount  * lv_exchange_rate  * -1.
+        ENDIF.
+        CLEAR : wa_disc.
+
+        READ TABLE lt_pricing INTO wa_disc WITH KEY billingdocument     = ls_item-billingdocument
+                                                          billingdocumentitem = ls_item-billingdocumentitem
+                                                          conditiontype       = 'ZIDV'.
+        IF sy-subrc = 0.
+          ls_json_item-discount =  wa_disc-conditionamount  * lv_exchange_rate  * -1.
+        ENDIF.
+        CLEAR : wa_disc.
+
+        READ TABLE lt_pricing INTO wa_disc WITH KEY billingdocument     = ls_item-billingdocument
+                                                          billingdocumentitem = ls_item-billingdocumentitem
+                                                          conditiontype       = 'ZIDP'.
+        IF sy-subrc = 0.
+          ls_json_item-discount =  wa_disc-conditionamount  * lv_exchange_rate  * -1.
+        ENDIF.
+        CLEAR : wa_disc.
+
+        READ TABLE lt_pricing INTO DATA(wa_price) WITH KEY billingdocument     = ls_item-billingdocument
                                                            billingdocumentitem = ls_item-billingdocumentitem
-                                                           conditiontype       = 'ZR00'.
+                                                             conditiontype       = 'ZR00' .
+
 
         IF sy-subrc = 0.
-          ls_json_item-total_amount     = abs( wa_price-conditionamount ) * lv_exchange_rate.
+          ls_json_item-total_amount     =  ( abs( wa_price-conditionamount ) * lv_exchange_rate ).
+        ELSE.
+          READ TABLE lt_pricing INTO wa_price WITH KEY billingdocument     = ls_item-billingdocument
+                                                         billingdocumentitem = ls_item-billingdocumentitem
+                                                           conditiontype       = 'ZPR0' .
+
+
+          IF sy-subrc = 0.
+            ls_json_item-total_amount     =  ( abs( wa_price-conditionamount ) * lv_exchange_rate ).
+
+          ENDIF.
         ENDIF.
-        CLEAR : wa_price.
+        CLEAR : wa_price,wa_disc.
 *        ls_json_item-total_amount     = abs( ls_item-netamount ) * lv_exchange_rate.
-        ls_json_item-assessable_value = ls_json_item-total_amount.
+        ls_json_item-assessable_value = ls_json_item-total_amount -  ( ls_json_item-discount ).
 
         " Calculate Unit Price in INR
         IF ls_json_item-quantity <> 0.
@@ -1179,6 +1322,15 @@ else.
         ELSE.
           ls_json_item-gst_rate = 0.
         ENDIF.
+
+        IF ls_payload-transaction_details-supply_type = 'EXPWOP'.
+          IF  ls_json_item-gst_rate = 0.
+            ls_payload-transaction_details-supply_type = 'EXPWOP'.
+          ELSE.
+            ls_payload-transaction_details-supply_type = 'EXPWP'.
+          ENDIF.
+
+        ENDIF.
 *      IF ls_payload-transaction_details-supply_type = 'B2B'          OR
 *          ls_payload-transaction_details-supply_type = 'SEZWP'     OR
 *          ls_payload-transaction_details-supply_type = 'SEZWOP'   OR
@@ -1240,6 +1392,7 @@ else.
 
 
   METHOD get_instance.
+
     IF mo_eway_util IS INITIAL.
       mo_eway_util = NEW #( ).
       SELECT    apparea,
@@ -1303,13 +1456,35 @@ else.
           wa_resp   TYPE ty_resp,
           lt_return TYPE tty_return.
 
+    " 1. Get System ID using Cloud API
+    DATA(lo_current_tenant) = xco_cp=>current->tenant( ).
+*
+*
+*      " 2. Get the URL object (e.g., for UI)
+    DATA(lo_url) = lo_current_tenant->get_url( xco_cp_tenant=>url_type->ui ).
+*
+*      " 3. Get the actual string value
+    DATA(lv_host) = lo_url->get_host( ).
+    DATA(lv_sysid) = 'DEV'.
+    READ TABLE mt_customizing INTO DATA(wa_eway_custmizing) WITH KEY fieldname = 'S4SYSTYPE' fieldvalue1 = lv_host.
+    IF sy-subrc EQ 0.
+      lv_sysid = wa_eway_custmizing-fieldvalue2.
+    ENDIF.
 
-    wa_rqst-username      = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'USERNAME' ]-fieldvalue3 .
-    wa_rqst-password      = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'PASSWORD' ]-fieldvalue3.
-    wa_rqst-client_id     = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'CLIENT_ID' ]-fieldvalue3.
-    wa_rqst-client_secret = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'CLIENT_SECRET' ]-fieldvalue3.
-    wa_rqst-grant_type    = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'GRANT_TYPE' ]-fieldvalue2.
 
+    IF lv_sysid = 'DEV'.
+      wa_rqst-username      = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'USERNAME' ]-fieldvalue3 .
+      wa_rqst-password      = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'PASSWORD' ]-fieldvalue3.
+      wa_rqst-client_id     = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'CLIENT_ID' ]-fieldvalue3.
+      wa_rqst-client_secret = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'CLIENT_SECRET' ]-fieldvalue3.
+      wa_rqst-grant_type    = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'GRANT_TYPE' ]-fieldvalue2.
+    ELSE.
+      wa_rqst-username      = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'USERNAME' ]-fieldvalue2 .
+      wa_rqst-password      = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'PASSWORD' ]-fieldvalue2.
+      wa_rqst-client_id     = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'CLIENT_ID' ]-fieldvalue2.
+      wa_rqst-client_secret = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'CLIENT_SECRET' ]-fieldvalue2.
+      wa_rqst-grant_type    = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'GRANT_TYPE' ]-fieldvalue2.
+    ENDIF.
 
 *    wa_rqst-username = 'anil.more@prabha-engg.com'.
 *    wa_rqst-password = 'Prabha-engg1'.
@@ -1324,9 +1499,13 @@ else.
       RECEIVING
         r_json           = lv_data
     ).
-
-    DATA(lv_baseurl)    = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue3.
-    DATA(lv_auth_token) = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'AUTH_TOKEN' ]-fieldvalue2.
+    IF lv_sysid = 'PRD'.
+      DATA(lv_baseurl)    = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue2.
+      DATA(lv_auth_token) = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'AUTH_TOKEN' ]-fieldvalue2.
+    ELSE.
+      lv_baseurl    = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue3.
+      lv_auth_token = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'AUTH_TOKEN' ]-fieldvalue3.
+    ENDIF.
 *    data(lv_baseurl) = 'https://clientbasic.mastersindia.co'.
 *    DATA(lv_auth_token) = '/oauth/access_token'.
     CONCATENATE lv_baseurl lv_auth_token INTO DATA(lv_auth_token_url).
@@ -1472,9 +1651,13 @@ else.
     eway_payload_dwnld_structure-transporterid = eway_payload_structure-transporter_id.
     eway_payload_dwnld_structure-transportername = eway_payload_structure-transporter_name  .
     eway_payload_dwnld_structure-transdocno = eway_payload_structure-trans_document_number  .
-    eway_payload_dwnld_structure-transmode = eway_payload_structure-transporter_document_date .
-    eway_payload_dwnld_structure-transdistance = eway_payload_structure-transportation_mode .
-    eway_payload_dwnld_structure-transdocdate = eway_payload_structure-transportation_distance .
+    if eway_payload_structure-transportation_mode = 000.
+       eway_payload_dwnld_structure-transmode = ''."eway_payload_structure-transportation_mode .
+    else.
+       eway_payload_dwnld_structure-transmode = '1'.
+    endif.
+    eway_payload_dwnld_structure-transdistance = eway_payload_structure-transportation_distance .
+    eway_payload_dwnld_structure-transdocdate = eway_payload_structure-transporter_document_date .
     eway_payload_dwnld_structure-vehicleno = eway_payload_structure-vehicle_number .
     eway_payload_dwnld_structure-vehicletype = eway_payload_structure-vehicle_type  .
     "eway_payload_dwnld_structure- =  eway_payload_structure-generate_status .
@@ -1508,113 +1691,193 @@ else.
 *    IF sy-subrc EQ 0.
 *      APPEND VALUE #( message = 'Eway Bill is already generated' ) TO et_return.
 *    ELSE.
-      SELECT a~supplierinvoice,
-           a~fiscalyear,
-           b~supplierinvoiceitem,
-           a~accountingdocumenttype,
-           a~documentdate,
-           a~postingdate,
-           a~supplierinvoiceidbyinvcgparty,
-           a~companycode,
-           a~invoicingparty,
-           a~documentcurrency,
-           a~businessplace,
-      "        a~IN_GSTPartner,
-      "        a~IN_GSTPlaceOfSupply,
-           b~purchaseorder,
-           b~purchaseorderitem,
-           b~purchaseorderitemmaterial,
-      "        b~bwkey,
-           b~plant,
-           b~supplierinvoiceitemamount,
-           b~taxcode,
-           b~quantityinpurchaseorderunit,
-           b~purchaseorderquantityunit,
-      "        b~meins,
-           b~referencedocument,
-           b~referencedocumentfiscalyear,
-           b~referencedocumentitem,
-      "        b~IN_HSNOrSACCode,
-          CAST( 'RMRP'  AS CHAR( 5 ) )  AS documenttype,
-      CAST( concat( a~supplierinvoice , a~fiscalyear ) AS CHAR( 20 ) ) AS   documentid
-      FROM i_supplierinvoiceapi01 AS a
-      INNER JOIN i_suplrinvcitempurordrefapi01 AS b
-        ON  b~supplierinvoice EQ a~supplierinvoice
-       AND b~fiscalyear EQ a~fiscalyear
-      WHERE a~supplierinvoice EQ @supplierinvoice
-       AND a~fiscalyear EQ @fiscalyear
-       INTO TABLE @DATA(it_rseg).
+    SELECT a~supplierinvoice,
+         a~fiscalyear,
+         b~supplierinvoiceitem,
+         a~accountingdocumenttype,
+         a~documentdate,
+         a~postingdate,
+         a~supplierinvoiceidbyinvcgparty,
+         a~companycode,
+         a~invoicingparty,
+         a~documentcurrency,
+         a~businessplace,
+    "        a~IN_GSTPartner,
+    "        a~IN_GSTPlaceOfSupply,
+         b~purchaseorder,
+         b~purchaseorderitem,
+         b~purchaseorderitemmaterial,
+    "        b~bwkey,
+         b~plant,
+         b~supplierinvoiceitemamount,
+         b~taxcode,
+         b~quantityinpurchaseorderunit,
+         b~purchaseorderquantityunit,
+    "        b~meins,
+         b~referencedocument,
+         b~referencedocumentfiscalyear,
+         b~referencedocumentitem,
+    "        b~IN_HSNOrSACCode,
+        CAST( 'RMRP'  AS CHAR( 5 ) )  AS documenttype,
+    CAST( concat( a~supplierinvoice , a~fiscalyear ) AS CHAR( 20 ) ) AS   documentid
+    FROM i_supplierinvoiceapi01 AS a
+    INNER JOIN i_suplrinvcitempurordrefapi01 AS b
+      ON  b~supplierinvoice EQ a~supplierinvoice
+     AND b~fiscalyear EQ a~fiscalyear
+    WHERE a~supplierinvoice EQ @supplierinvoice
+     AND a~fiscalyear EQ @fiscalyear
+     INTO TABLE @DATA(it_rseg).
 
-      IF it_rseg IS NOT INITIAL.
+    IF it_rseg IS NOT INITIAL.
 
-        SELECT a~product,
-               b~productname,
-               a~plant,
-               a~consumptiontaxctrlcode
-          FROM i_productplantbasic AS a            "#EC CI_NO_TRANSFORM
-         INNER JOIN i_producttext AS b
-            ON b~product EQ a~product
-           FOR ALL ENTRIES IN @it_rseg
-         WHERE a~product EQ @it_rseg-purchaseorderitemmaterial
-           AND a~plant EQ @it_rseg-plant
-           INTO TABLE @DATA(it_marc).
+      SELECT a~product,
+             b~productname,
+             a~plant,
+             a~consumptiontaxctrlcode
+        FROM i_productplantbasic AS a              "#EC CI_NO_TRANSFORM
+       INNER JOIN i_producttext AS b
+          ON b~product EQ a~product
+         FOR ALL ENTRIES IN @it_rseg
+       WHERE a~product EQ @it_rseg-purchaseorderitemmaterial
+         AND a~plant EQ @it_rseg-plant
+         INTO TABLE @DATA(it_marc).
 
-        SELECT materialdocumentyear,
-               materialdocument,
-               invtrymgmtreferencedocument,
-               referencedocumentfiscalyear,
-               goodsmovementtype,
-               yy1_trid_mmi ,
-               yy1_ztnam_mmi ,
-               yy1_lrdate_mmi,
-               yy1_zlrno_mmi ,
-               yy1_vehno_mmi
-          FROM i_materialdocumentitemtp
-         WHERE materialdocument EQ @rdmaterialdocument
-           AND materialdocumentyear EQ @rdmaterialdocumentyear
-           AND goodsmovementtype EQ '122'
-           INTO TABLE @DATA(it_mseg).
-        SELECT
-               plant,
-               plantname,
-               i_plant~valuationarea,
+      SELECT materialdocumentyear,
+             materialdocument,
+             invtrymgmtreferencedocument,
+             referencedocumentfiscalyear,
+             goodsmovementtype,
+             yy1_trid_mmi ,
+             yy1_ztnam_mmi ,
+             yy1_lrdate_mmi,
+             yy1_zlrno_mmi ,
+             yy1_vehno_mmi
+        FROM i_materialdocumentitemtp
+       WHERE materialdocument EQ @rdmaterialdocument
+         AND materialdocumentyear EQ @rdmaterialdocumentyear
+         AND goodsmovementtype EQ '122'
+         INTO TABLE @DATA(it_mseg).
+      SELECT
+             plant,
+             plantname,
+             i_plant~valuationarea,
+             businessplace,
+             i_address_2~organizationname1,
+             i_address_2~streetname,
+             i_address_2~postalcode,
+             i_address_2~cityname,
+             defaultpurchasingorganization,
+             i_address_2~poboxdeviatingcountry,
+             i_address_2~region,
+             i_address_2~housenumber,
+"             I_Address~cityc,
+             i_address_2~addressid,
+            i_valuationarea~companycode
+        FROM i_valuationarea WITH PRIVILEGED ACCESS "#EC CI_NO_TRANSFORM
+        INNER JOIN i_plant ON i_valuationarea~valuationarea EQ i_plant~valuationarea
+        LEFT OUTER JOIN i_address_2 WITH PRIVILEGED ACCESS ON i_plant~addressid = i_address_2~addressid
+         FOR ALL ENTRIES IN @it_rseg
+       WHERE i_valuationarea~companycode EQ @it_rseg-companycode
+         AND i_plant~plant EQ @it_rseg-plant
+         INTO TABLE @DATA(it_plnt).
+
+      IF it_plnt IS NOT INITIAL.
+        SELECT companycode,
                businessplace,
-               i_address_2~organizationname1,
-               i_address_2~streetname,
-               i_address_2~postalcode,
-               i_address_2~cityname,
-               defaultpurchasingorganization,
-               i_address_2~poboxdeviatingcountry,
-               i_address_2~region,
-               i_address_2~housenumber,
-  "             I_Address~cityc,
-               i_address_2~addressid,
-              i_valuationarea~companycode
-          FROM i_valuationarea WITH PRIVILEGED ACCESS "#EC CI_NO_TRANSFORM
-          INNER JOIN i_plant ON i_valuationarea~valuationarea EQ i_plant~valuationarea
-          LEFT OUTER JOIN i_address_2 WITH PRIVILEGED ACCESS ON i_plant~addressid = i_address_2~addressid
-           FOR ALL ENTRIES IN @it_rseg
-         WHERE i_valuationarea~companycode EQ @it_rseg-companycode
-           AND i_plant~plant EQ @it_rseg-plant
-           INTO TABLE @DATA(it_plnt).
+               addressid,
+               in_gstidentificationnumber AS gstin
+"               gstin
+          FROM  i_in_businessplacetaxdetail        "#EC CI_NO_TRANSFORM
+          "I_BusinessPlaceVH
 
-        IF it_plnt IS NOT INITIAL.
-          SELECT companycode,
-                 businessplace,
-                 addressid,
-                 in_gstidentificationnumber AS gstin
-  "               gstin
-            FROM  i_in_businessplacetaxdetail      "#EC CI_NO_TRANSFORM
-            "I_BusinessPlaceVH
+           FOR ALL ENTRIES IN @it_plnt
+         WHERE
+         companycode EQ @it_plnt-companycode
+           AND businessplace EQ @it_plnt-businessplace
+            INTO TABLE @DATA(it_brch).
 
-             FOR ALL ENTRIES IN @it_plnt
-           WHERE
-           companycode EQ @it_plnt-companycode
-             AND businessplace EQ @it_plnt-businessplace
-              INTO TABLE @DATA(it_brch).
+        IF it_brch IS NOT INITIAL.
+          SELECT addressid,
+                 organizationname1,
+                 organizationname2,
+                 organizationname3,
+                 organizationname4,
+                 streetname,
+                 streetprefixname1,
+                 streetprefixname2,
+                 streetsuffixname1,
+                 streetsuffixname2,
+                 cityname,
+                 region,
+                 postalcode,
+                 building,
+                 floor,
+                 country
+            FROM i_address_2 WITH PRIVILEGED ACCESS "#EC CI_NO_TRANSFORM
+             FOR ALL ENTRIES IN @it_brch
+           WHERE addressid EQ @it_brch-addressid
+           INTO TABLE @DATA(it_adds).
+        ENDIF.
+      ENDIF.
 
-          IF it_brch IS NOT INITIAL.
-            SELECT addressid,
+*      LOOP AT it_rseg INTO data(wa_rseg).
+*        wa_rseg-awtyp = 'RMRP'.
+*        CONCATENATE wa_rseg-SupplierInvoice wa_rseg-FiscalYear INTO wa_rseg-awkey.
+*        MODIFY: it_rseg FROM wa_rseg.
+*        CLEAR: wa_rseg.
+*      ENDLOOP.
+
+      SELECT companycode,
+             accountingdocument,
+             fiscalyear,
+             documentreferenceid,
+             referencedocumenttype,
+             originalreferencedocument
+        FROM i_journalentry                        "#EC CI_NO_TRANSFORM
+
+
+         FOR ALL ENTRIES IN @it_rseg
+       WHERE referencedocumenttype EQ @it_rseg-documenttype
+         AND originalreferencedocument EQ @it_rseg-documentid
+         INTO TABLE @DATA(it_bkpf).
+
+      IF it_bkpf IS NOT INITIAL.
+        SELECT companycode,
+               accountingdocument,
+               fiscalyear,
+
+ "              TaxItem,
+ "              ConditionType,
+               taxbaseamountincocodecrcy,
+               taxamountincocodecrcy,
+               amountincompanycodecurrency,
+"               Tax,
+               taxcode,
+               transactiontypedetermination,
+               costcenter
+          FROM i_operationalacctgdocitem           "#EC CI_NO_TRANSFORM
+           FOR ALL ENTRIES IN @it_bkpf
+         WHERE companycode        EQ @it_bkpf-companycode
+           AND accountingdocument EQ @it_bkpf-accountingdocument
+           AND fiscalyear         EQ @it_bkpf-fiscalyear
+           INTO TABLE @DATA(it_bset).
+      ENDIF.
+
+      SELECT supplier,
+             organizationbpname1,
+             taxnumber2,
+             taxnumber3,
+             postalcode,
+             region,
+             streetname,
+             addressid
+        FROM i_supplier                            "#EC CI_NO_TRANSFORM
+         FOR ALL ENTRIES IN @it_rseg
+       WHERE supplier EQ @it_rseg-invoicingparty
+       INTO TABLE @DATA(it_vend).
+
+      IF it_vend IS NOT INITIAL.
+        SELECT addressid,
                    organizationname1,
                    organizationname2,
                    organizationname3,
@@ -1630,356 +1893,318 @@ else.
                    building,
                    floor,
                    country
-              FROM i_address_2 WITH PRIVILEGED ACCESS "#EC CI_NO_TRANSFORM
-               FOR ALL ENTRIES IN @it_brch
-             WHERE addressid EQ @it_brch-addressid
-             INTO TABLE @DATA(it_adds).
-          ENDIF.
+            FROM i_address_2 WITH PRIVILEGED ACCESS "#EC CI_NO_TRANSFORM
+             FOR ALL ENTRIES IN @it_vend
+           WHERE addressid EQ @it_vend-addressid
+           INTO TABLE @DATA(it_addb).
+      ENDIF.
+
+      DATA(wa_rseg) = it_rseg[ 1 ].
+      READ TABLE it_marc INTO DATA(wa_marc) WITH KEY product = wa_rseg-purchaseorderitemmaterial.
+
+      READ TABLE it_bkpf INTO DATA(wa_bkpf) WITH KEY referencedocumenttype      = wa_rseg-documenttype
+                                                originalreferencedocument = wa_rseg-documentid.
+      wa_item-item_no             = 1.
+      wa_item-product_name        = wa_marc-productname.
+      wa_item-product_description = wa_marc-productname.
+      wa_item-hsn_code            = wa_marc-consumptiontaxctrlcode.
+      wa_item-quantity            = wa_rseg-quantityinpurchaseorderunit.
+
+      READ TABLE mt_customizing INTO DATA(wa_eway_custmizing) WITH KEY fieldname = 'UOM' fieldvalue1 = wa_rseg-purchaseorderquantityunit.
+      IF sy-subrc EQ 0.
+        wa_item-unit_of_product     = wa_eway_custmizing-fieldvalue2. "S010 Text for Mapping
+      ENDIF.
+      CLEAR:wa_eway_custmizing.
+      wa_item-taxable_amount      = wa_rseg-supplierinvoiceitemamount.
+      wa_item-cess_rate           = 0.
+      wa_item-cess_non_advol      = 0.
+
+      wa_ewbl-cess_amount           = wa_ewbl-cess_amount + wa_item-cess_rate.
+      wa_ewbl-cess_nonadvol_value   = wa_ewbl-cess_nonadvol_value + wa_item-cess_non_advol.
+      wa_ewbl-taxable_amount        = wa_ewbl-taxable_amount + wa_item-taxable_amount.
+
+      LOOP AT it_bset INTO DATA(wa_bset) WHERE  companycode        EQ wa_bkpf-companycode
+           AND accountingdocument EQ wa_bkpf-accountingdocument
+           AND fiscalyear         EQ wa_bkpf-fiscalyear.
+        IF wa_bset-amountincompanycodecurrency LT 0.
+          wa_bset-amountincompanycodecurrency = wa_bset-amountincompanycodecurrency * -1.
         ENDIF.
+        CASE wa_bset-transactiontypedetermination.
+          WHEN 'JIC'.
+            wa_item-cgst_rate   = abs( ( wa_bset-amountincompanycodecurrency * 100 ) / wa_ewbl-taxable_amount   ).
+            wa_ewbl-cgst_amount = wa_ewbl-cgst_amount + wa_bset-amountincompanycodecurrency.
+          WHEN 'JIS'.
+            wa_item-sgst_rate   = abs( ( wa_bset-amountincompanycodecurrency * 100 ) / wa_ewbl-taxable_amount   ).
+            wa_ewbl-sgst_amount = wa_ewbl-sgst_amount + wa_bset-amountincompanycodecurrency.
+          WHEN 'JII'.
+            wa_item-igst_rate   = abs( ( wa_bset-amountincompanycodecurrency * 100 ) / wa_ewbl-taxable_amount   ).
+            wa_ewbl-igst_amount = wa_ewbl-igst_amount + wa_bset-amountincompanycodecurrency.
+        ENDCASE.
+      ENDLOOP.
 
-*      LOOP AT it_rseg INTO data(wa_rseg).
-*        wa_rseg-awtyp = 'RMRP'.
-*        CONCATENATE wa_rseg-SupplierInvoice wa_rseg-FiscalYear INTO wa_rseg-awkey.
-*        MODIFY: it_rseg FROM wa_rseg.
-*        CLEAR: wa_rseg.
-*      ENDLOOP.
+      wa_ewbl-total_invoice_value   = wa_ewbl-total_invoice_value +
+                                      wa_ewbl-taxable_amount      +
+                                      wa_ewbl-cgst_amount         +
+                                      wa_ewbl-sgst_amount         +
+                                      wa_ewbl-igst_amount         +
+                                      wa_ewbl-cess_nonadvol_value +
+                                      wa_ewbl-other_value         +
+                                      wa_ewbl-cess_amount.
 
-        SELECT companycode,
-               accountingdocument,
-               fiscalyear,
-               documentreferenceid,
-               referencedocumenttype,
-               originalreferencedocument
-          FROM i_journalentry                      "#EC CI_NO_TRANSFORM
+      APPEND : wa_item TO lt_item.
+      wa_ewbl-itemlist = lt_item.
+      CLEAR : wa_item.
 
+      wa_ewbl-access_token            = token.
+      wa_ewbl-supply_type             = 'OUTWARD'.
+      wa_ewbl-document_type           = 'Delivery Challan'.
+      wa_ewbl-sub_supply_type         = 'OTHERS'.
+      wa_ewbl-sub_supply_description  = 'OTHERS'.
+      wa_ewbl-document_number         = wa_rseg-supplierinvoice.
+      wa_ewbl-generate_status         = '1'.
 
-           FOR ALL ENTRIES IN @it_rseg
-         WHERE referencedocumenttype EQ @it_rseg-documenttype
-           AND originalreferencedocument EQ @it_rseg-documentid
-           INTO TABLE @DATA(it_bkpf).
+      CONCATENATE wa_rseg-postingdate+6(2) '/'
+                  wa_rseg-postingdate+4(2) '/'
+                  wa_rseg-postingdate(4)
+             INTO wa_ewbl-document_date.
 
-        IF it_bkpf IS NOT INITIAL.
-          SELECT companycode,
-                 accountingdocument,
-                 fiscalyear,
+      READ TABLE it_plnt INTO DATA(wa_plnt) WITH KEY companycode   = wa_rseg-companycode
+                                                   plant   = wa_rseg-plant.
+      READ TABLE it_brch INTO DATA(wa_brch) WITH KEY companycode   = wa_plnt-companycode
+                                               businessplace   = wa_plnt-businessplace.
+      READ TABLE it_adds INTO DATA(wa_adds) WITH KEY addressid   = wa_brch-addressid.
+      "  READ TABLE it_gstn INTO wa_gstn WITH KEY gstin   = wa_brch-gstin.
 
-   "              TaxItem,
-   "              ConditionType,
-                 taxbaseamountincocodecrcy,
-                 taxamountincocodecrcy,
-                 amountincompanycodecurrency,
-  "               Tax,
-                 taxcode,
-                 transactiontypedetermination,
-                 costcenter
-            FROM i_operationalacctgdocitem         "#EC CI_NO_TRANSFORM
-             FOR ALL ENTRIES IN @it_bkpf
-           WHERE companycode        EQ @it_bkpf-companycode
-             AND accountingdocument EQ @it_bkpf-accountingdocument
-             AND fiscalyear         EQ @it_bkpf-fiscalyear
-             INTO TABLE @DATA(it_bset).
-        ENDIF.
+      "Mapping Table for Region -ZSTA
+      "      READ TABLE it_stat INTO wa_stat WITH KEY region  = wa_adds-regio.
 
-        SELECT supplier,
-               organizationbpname1,
-               taxnumber2,
-               taxnumber3,
-               postalcode,
-               region,
-               streetname,
-               addressid
-          FROM i_supplier                          "#EC CI_NO_TRANSFORM
-           FOR ALL ENTRIES IN @it_rseg
-         WHERE supplier EQ @it_rseg-invoicingparty
-         INTO TABLE @DATA(it_vend).
+      CONCATENATE wa_adds-streetname
+                  wa_adds-streetprefixname1
+                  wa_adds-streetprefixname2
+                  wa_adds-streetsuffixname1
+                  wa_adds-streetsuffixname2
+             INTO DATA(lv_consignor_addrs).
 
-        IF it_vend IS NOT INITIAL.
-          SELECT addressid,
-                     organizationname1,
-                     organizationname2,
-                     organizationname3,
-                     organizationname4,
-                     streetname,
-                     streetprefixname1,
-                     streetprefixname2,
-                     streetsuffixname1,
-                     streetsuffixname2,
-                     cityname,
-                     region,
-                     postalcode,
-                     building,
-                     floor,
-                     country
-              FROM i_address_2 WITH PRIVILEGED ACCESS "#EC CI_NO_TRANSFORM
-               FOR ALL ENTRIES IN @it_vend
-             WHERE addressid EQ @it_vend-addressid
-             INTO TABLE @DATA(it_addb).
-        ENDIF.
-
-        DATA(wa_rseg) = it_rseg[ 1 ].
-        READ TABLE it_marc INTO DATA(wa_marc) WITH KEY product = wa_rseg-purchaseorderitemmaterial.
-
-        READ TABLE it_bkpf INTO DATA(wa_bkpf) WITH KEY referencedocumenttype      = wa_rseg-documenttype
-                                                  originalreferencedocument = wa_rseg-documentid.
-        wa_item-item_no             = 1.
-        wa_item-product_name        = wa_marc-productname.
-        wa_item-product_description = wa_marc-productname.
-        wa_item-hsn_code            = wa_marc-consumptiontaxctrlcode.
-        wa_item-quantity            = wa_rseg-quantityinpurchaseorderunit.
-
-        READ TABLE mt_customizing INTO DATA(wa_eway_custmizing) WITH KEY fieldname = 'UOM' fieldvalue1 = wa_rseg-purchaseorderquantityunit.
-        IF sy-subrc EQ 0.
-          wa_item-unit_of_product     = wa_eway_custmizing-fieldvalue2. "S010 Text for Mapping
-        ENDIF.
-        CLEAR:wa_eway_custmizing.
-        wa_item-taxable_amount      = wa_rseg-supplierinvoiceitemamount.
-        wa_item-cess_rate           = 0.
-        wa_item-cess_non_advol      = 0.
-
-        wa_ewbl-cess_amount           = wa_ewbl-cess_amount + wa_item-cess_rate.
-        wa_ewbl-cess_nonadvol_value   = wa_ewbl-cess_nonadvol_value + wa_item-cess_non_advol.
-        wa_ewbl-taxable_amount        = wa_ewbl-taxable_amount + wa_item-taxable_amount.
-
-        LOOP AT it_bset INTO DATA(wa_bset) WHERE  companycode        EQ wa_bkpf-companycode
-             AND accountingdocument EQ wa_bkpf-accountingdocument
-             AND fiscalyear         EQ wa_bkpf-fiscalyear.
-          IF wa_bset-amountincompanycodecurrency LT 0.
-            wa_bset-amountincompanycodecurrency = wa_bset-amountincompanycodecurrency * -1.
-          ENDIF.
-          CASE wa_bset-transactiontypedetermination.
-            WHEN 'JIC'.
-              wa_item-cgst_rate   = abs( ( wa_bset-amountincompanycodecurrency * 100 ) / wa_ewbl-taxable_amount   ).
-              wa_ewbl-cgst_amount = wa_ewbl-cgst_amount + wa_bset-amountincompanycodecurrency.
-            WHEN 'JIS'.
-              wa_item-sgst_rate   = abs( ( wa_bset-amountincompanycodecurrency * 100 ) / wa_ewbl-taxable_amount   ).
-              wa_ewbl-sgst_amount = wa_ewbl-sgst_amount + wa_bset-amountincompanycodecurrency.
-            WHEN 'JII'.
-              wa_item-igst_rate   = abs( ( wa_bset-amountincompanycodecurrency * 100 ) / wa_ewbl-taxable_amount   ).
-              wa_ewbl-igst_amount = wa_ewbl-igst_amount + wa_bset-amountincompanycodecurrency.
-          ENDCASE.
-        ENDLOOP.
-
-        wa_ewbl-total_invoice_value   = wa_ewbl-total_invoice_value +
-                                        wa_ewbl-taxable_amount      +
-                                        wa_ewbl-cgst_amount         +
-                                        wa_ewbl-sgst_amount         +
-                                        wa_ewbl-igst_amount         +
-                                        wa_ewbl-cess_nonadvol_value +
-                                        wa_ewbl-other_value         +
-                                        wa_ewbl-cess_amount.
-
-        APPEND : wa_item TO lt_item.
-        wa_ewbl-itemlist = lt_item.
-        CLEAR : wa_item.
-
-        wa_ewbl-access_token            = token.
-        wa_ewbl-supply_type             = 'OUTWARD'.
-        wa_ewbl-document_type           = 'Delivery Challan'.
-        wa_ewbl-sub_supply_type         = 'OTHERS'.
-        wa_ewbl-sub_supply_description  = 'OTHERS'.
-        wa_ewbl-document_number         = wa_rseg-supplierinvoice.
-        wa_ewbl-generate_status         = '1'.
-
-        CONCATENATE wa_rseg-postingdate+6(2) '/'
-                    wa_rseg-postingdate+4(2) '/'
-                    wa_rseg-postingdate(4)
-               INTO wa_ewbl-document_date.
-
-        READ TABLE it_plnt INTO DATA(wa_plnt) WITH KEY companycode   = wa_rseg-companycode
-                                                     plant   = wa_rseg-plant.
-        READ TABLE it_brch INTO DATA(wa_brch) WITH KEY companycode   = wa_plnt-companycode
-                                                 businessplace   = wa_plnt-businessplace.
-        READ TABLE it_adds INTO DATA(wa_adds) WITH KEY addressid   = wa_brch-addressid.
-        "  READ TABLE it_gstn INTO wa_gstn WITH KEY gstin   = wa_brch-gstin.
-
-        "Mapping Table for Region -ZSTA
-        "      READ TABLE it_stat INTO wa_stat WITH KEY region  = wa_adds-regio.
-
-        CONCATENATE wa_adds-streetname
-                    wa_adds-streetprefixname1
-                    wa_adds-streetprefixname2
-                    wa_adds-streetsuffixname1
-                    wa_adds-streetsuffixname2
-               INTO DATA(lv_consignor_addrs).
-
-        "------------------------------ Begin GSTIN Details-------------------------------------
-        "SO10 text for for the detail
-        "[{"pannum":"AAACU4276H",
-        "lglnm":"Umasons Auto Compo Pvt Ltd",
-        "trdnm":"Umasons Auto Compo Pvt Ltd",
-        "gstin":"27AAACU4276H1ZH"}]
+      "------------------------------ Begin GSTIN Details-------------------------------------
+      "SO10 text for for the detail
+      "[{"pannum":"AAACU4276H",
+      "lglnm":"Umasons Auto Compo Pvt Ltd",
+      "trdnm":"Umasons Auto Compo Pvt Ltd",
+      "gstin":"27AAACU4276H1ZH"}]
 *        READ TABLE mt_customizing INTO wa_eway_custmizing WITH KEY fieldname = 'GSTIN'.
 
 *    SELECT SINGLE plant FROM i_billingdocumentitem WHERE billingdocument = @ls_bill_head-billingdocument INTO @DATA(lv_plant).
 
 
-        SELECT
-        SINGLE in_gstidentificationnumber
-          FROM i_in_businessplacetaxdetail
-         WHERE companycode = @wa_rseg-companycode
-           AND businessplace = @wa_plnt-plant
-          INTO @DATA(lv_sgstin).
+      SELECT
+      SINGLE in_gstidentificationnumber
+        FROM i_in_businessplacetaxdetail
+       WHERE companycode = @wa_rseg-companycode
+         AND businessplace = @wa_plnt-plant
+        INTO @DATA(lv_sgstin).
 
+      """""""""""""""""""""""""added by trupti to pass system wise gstin
+      " 1. Get System ID using Cloud API
+      DATA(lo_current_tenant) = xco_cp=>current->tenant( ).
+*
+*
+*      " 2. Get the URL object (e.g., for UI)
+      DATA(lo_url) = lo_current_tenant->get_url( xco_cp_tenant=>url_type->ui ).
+*
+*      " 3. Get the actual string value
+      DATA(lv_host) = lo_url->get_host( ).
+      DATA(lv_sysid) = 'DEV'.
+      READ TABLE mt_customizing INTO DATA(wa_custmizing) WITH KEY fieldname = 'S4SYSTYPE' fieldvalue1 = lv_host.
+      IF sy-subrc EQ 0.
+        lv_sysid = wa_custmizing-fieldvalue2.
+      ENDIF.
+
+      """"""""""""""""""""""""""""""""""""added by trupti
+      IF lv_sysid = 'PRD'.
+        IF lv_sgstin IS NOT INITIAL.
+          wa_ewbl-usergstin  = lv_sgstin.
+          wa_ewbl-gstin_of_consignor = lv_sgstin.
+          wa_ewbl-legal_name_of_consignor = wa_plnt-organizationname1.
+        ENDIF.
+      ELSE.
         lv_sgstin = '05AAABB0639G1Z8'.
         IF lv_sgstin IS NOT INITIAL.
           wa_ewbl-usergstin  = lv_sgstin.
           wa_ewbl-gstin_of_consignor = lv_sgstin.
-          wa_ewbl-legal_name_of_consignor = wa_plnt-plantname.
+          wa_ewbl-legal_name_of_consignor = wa_plnt-organizationname1.
         ENDIF.
-
+      ENDIF.
+      """"""""""""""""""""""""""""""""""""""""""end""""""""""""""""""""""""
 *        IF sy-subrc EQ 0.
 *          wa_ewbl-usergstin  = wa_eway_custmizing-fieldvalue1.
 *          wa_ewbl-gstin_of_consignor = wa_eway_custmizing-fieldvalue1.
 *          wa_ewbl-legal_name_of_consignor = wa_eway_custmizing-fieldvalue2.
 *        ENDIF.
-        CLEAR:wa_eway_custmizing.
-        "------------------------------End of GSTIN Details-------------------------------------
-        wa_ewbl-address1_of_consignor   = lv_consignor_addrs.
-        wa_ewbl-address2_of_consignor   = lv_consignor_addrs.
+      CLEAR:wa_eway_custmizing.
+      "------------------------------End of GSTIN Details-------------------------------------
+      wa_ewbl-address1_of_consignor   = lv_consignor_addrs.
+      wa_ewbl-address2_of_consignor   = lv_consignor_addrs.
+      IF lv_sysid = 'DEV'.
         wa_ewbl-place_of_consignor      = 'Udyambag ,Belagavi'."wa_adds-cityname.
-
         wa_ewbl-pincode_of_consignor    = '248001'."wa_adds-postalcode. "248001.
-        "wa_adds-Region =  '05'.
-        "------------------------------ Begin State Mapping-------------------------------------
-        READ TABLE mt_customizing INTO wa_eway_custmizing WITH KEY fieldname = 'STATECODELIST' fieldvalue3 = wa_adds-region.
-        IF sy-subrc EQ 0.
+      ELSE.
+        wa_ewbl-place_of_consignor      = wa_adds-cityname.
+        wa_ewbl-pincode_of_consignor    = wa_adds-postalcode. "248001.
+      ENDIF.
+      "wa_adds-Region =  '05'.
+      "------------------------------ Begin State Mapping-------------------------------------
+      READ TABLE mt_customizing INTO wa_eway_custmizing WITH KEY fieldname = 'STATECODELIST' fieldvalue3 = wa_adds-region.
+      IF sy-subrc EQ 0.
+        IF lv_sysid = 'DEV'.
           wa_ewbl-state_of_consignor      = 'UTTARAKHAND'."wa_eway_custmizing-fieldvalue2. "wa_stat-stname.
           wa_ewbl-actual_from_state_name  = 'UTTARAKHAND'."wa_eway_custmizing-fieldvalue2. "wa_stat-stname.
-        ENDIF.
-        CLEAR:wa_eway_custmizing.
-        "------------------------------ End State Mapping-------------------------------------
-        IF wa_ewbl-address1_of_consignor IS INITIAL.
-          wa_ewbl-address1_of_consignor = wa_plnt-housenumber.
-        ENDIF.
-        IF wa_ewbl-address2_of_consignor IS INITIAL.
-          wa_ewbl-address2_of_consignor = wa_plnt-housenumber.
-        ENDIF.
-        IF wa_ewbl-place_of_consignor IS INITIAL.
-          wa_ewbl-place_of_consignor = wa_plnt-cityname.
-        ENDIF.
-        IF wa_ewbl-pincode_of_consignor IS INITIAL.
-          wa_ewbl-pincode_of_consignor = wa_plnt-postalcode.
-        ENDIF.
-        IF wa_ewbl-actual_from_state_name IS INITIAL.
-          wa_ewbl-actual_from_state_name = wa_plnt-postalcode.
-        ENDIF.
-        IF wa_ewbl-state_of_consignor IS INITIAL.
-          wa_ewbl-state_of_consignor = wa_plnt-region.
-        ENDIF.
-*        wa_ewbl-pincode_of_consignor    = wa_adds-postalcode. "248001.
-        CLEAR : wa_plnt, wa_brch, wa_adds.
-        "wa_gstn, wa_stat, wa_addrs.
-
-        READ TABLE it_vend INTO DATA(wa_vend) WITH KEY supplier = wa_rseg-invoicingparty.
-        READ TABLE it_addb INTO DATA(wa_addb) WITH KEY addressid = wa_vend-addressid.
-        "Mapping Table for Region -ZSTA
-        "     READ TABLE it_stat INTO wa_stat WITH KEY region = wa_addb-regio.
-
-        CONCATENATE wa_addb-streetname
-                    wa_addb-streetprefixname1
-                    wa_addb-streetprefixname2
-                    wa_addb-streetsuffixname1
-                    wa_addb-streetsuffixname2
-               INTO DATA(lv_consignee_addrs).
-        " wa_ewbl-gstin_of_consignee = '27AAECS5979D1Z0'.
-        wa_ewbl-gstin_of_consignee      = wa_vend-taxnumber3.
-        wa_ewbl-legal_name_of_consignee = wa_vend-organizationbpname1.
-
-        wa_ewbl-address1_of_consignee   = lv_consignee_addrs.
-        wa_ewbl-address2_of_consignee   = lv_consignee_addrs.
-        wa_ewbl-place_of_consignee      = wa_addb-cityname.
-        wa_ewbl-pincode_of_consignee    = wa_addb-postalcode. "'400001'
-        "wa_addb-Region = '27'.
-        "------------------------------ Begin State Mapping-------------------------------------
-
-        READ TABLE mt_customizing INTO wa_eway_custmizing WITH KEY fieldname = 'STATECODELIST' fieldvalue3 = wa_addb-region.
-        IF sy-subrc EQ 0.
-          wa_ewbl-state_of_supply      = wa_eway_custmizing-fieldvalue2. "wa_stat-stname.
-          wa_ewbl-actual_to_state_name  = wa_eway_custmizing-fieldvalue2. "wa_stat-stname.
-        ENDIF.
-        CLEAR:wa_eway_custmizing.
-
-        "------------------------------ End State Mapping-------------------------------------
-        CLEAR :  wa_vend, wa_addb.
-        ", wa_stat.
-
-        READ TABLE it_mseg INTO DATA(wa_mseg) WITH KEY materialdocument = rdmaterialdocument
-                                                       materialdocumentyear = rdmaterialdocumentyear.
-        "Data Coming from Material Document
-        "      READ TABLE it_vrej INTO wa_vrej WITH KEY mblnr = wa_mseg-mblnr
-        "                                              mjahr = wa_mseg-mjahr.
-
-        " Mapping for Distance Calculation
-        "     READ TABLE it_zdst INTO wa_zdst WITH KEY zfpin = wa_ewbl-pincode_of_consignor
-        "                                              ztpin = wa_ewbl-pincode_of_consignee.
-        " --- 7. Transport Data from Cockpit ---
-        SELECT SINGLE transporterid, transportername, transporterdocumentnumber,
-               transportationmode, vehicletype, transportationdistance, vehiclenumber, transporterdocumentdate
-          FROM zzeinv_cockpit_i
-          WHERE docno = @rdmaterialdocument AND docyear = @rdmaterialdocumentyear AND bukrs = @wa_rseg-companycode
-          INTO @DATA(ls_trans).
-        wa_ewbl-vehicle_type                    = ls_trans-vehicletype.
-        wa_ewbl-transportation_mode             = ls_trans-transportationmode.
-        wa_ewbl-vehicle_number                  = ls_trans-vehiclenumber.
-        wa_ewbl-transporter_id                  = ls_trans-transporterid.
-        wa_ewbl-transporter_name                = ls_trans-transportername.
-        wa_ewbl-trans_document_number           = ls_trans-transporterdocumentnumber.
-        wa_ewbl-transportation_distance           = ls_trans-transportationdistance.
-        IF wa_mseg-yy1_lrdate_mmi IS NOT INITIAL.
-          CONCATENATE wa_mseg-yy1_lrdate_mmi+6(2) '/'
-                      wa_mseg-yy1_lrdate_mmi+4(2) '/'
-                      wa_mseg-yy1_lrdate_mmi(4)
-                 INTO wa_ewbl-transporter_document_date.
         ELSE.
-          DATA(lv_sydatum) =   cl_abap_context_info=>get_system_date( ).
-          CONCATENATE lv_sydatum+6(2) '/'
-                      lv_sydatum+4(2) '/'
-                      lv_sydatum(4)
-                 INTO wa_ewbl-transporter_document_date.
+          wa_ewbl-state_of_consignor      = wa_eway_custmizing-fieldvalue2. "wa_stat-stname.
+          wa_ewbl-actual_from_state_name  = wa_eway_custmizing-fieldvalue2. "wa_stat-stname.
         ENDIF.
-        IF wa_ewbl-transportation_distance IS INITIAL.
-           READ TABLE mt_customizing INTO wa_eway_custmizing WITH KEY fieldname = 'DISTANCE'
-                                                                          fieldvalue2 = wa_ewbl-pincode_of_consignor
-                                                                          fieldvalue3 = wa_ewbl-pincode_of_consignee.
-
-          IF sy-subrc EQ 0 AND wa_eway_custmizing-fieldvalue4 IS NOT INITIAL .
-            wa_ewbl-transportation_distance       = wa_eway_custmizing-fieldvalue4. " Mapping for Distance calculation
-          ELSE.
-            wa_ewbl-transportation_distance       = 0.
-          ENDIF.
-        ENDIF.
-        CLEAR:wa_eway_custmizing.
-        IF ( wa_ewbl-state_of_consignor EQ wa_ewbl-actual_from_state_name ) AND
-           ( wa_ewbl-state_of_supply EQ wa_ewbl-actual_to_state_name ).
-          wa_ewbl-transaction_type = '1'.
-        ENDIF.
-        IF ( wa_ewbl-state_of_consignor EQ wa_ewbl-actual_from_state_name ) AND
-           ( wa_ewbl-state_of_supply NE wa_ewbl-actual_to_state_name ).
-          wa_ewbl-transaction_type = '2'.
-        ENDIF.
-        IF ( wa_ewbl-state_of_consignor NE wa_ewbl-actual_from_state_name ) AND
-           ( wa_ewbl-state_of_supply EQ wa_ewbl-actual_to_state_name ).
-          wa_ewbl-transaction_type = '3'.
-        ENDIF.
-        IF ( wa_ewbl-state_of_consignor NE wa_ewbl-actual_from_state_name ) AND
-           ( wa_ewbl-state_of_supply NE wa_ewbl-actual_to_state_name ).
-          wa_ewbl-transaction_type = '4'.
-        ENDIF.
-
-        eway_payload_structure = wa_ewbl.
-        /ui2/cl_json=>serialize(
-        EXPORTING
-          data             = wa_ewbl
-          pretty_name   = /ui2/cl_json=>pretty_mode-low_case
-        RECEIVING
-          r_json           = eway_payload
-      ).
-        REPLACE ALL OCCURRENCES OF 'usergstin' IN eway_payload WITH 'userGstin'.
-        REPLACE 'usergstin' IN eway_payload WITH 'userGstin'.
-        REPLACE 'itemlist'  IN eway_payload WITH 'itemList'.
-        REPLACE ALL OCCURRENCES OF '\' IN eway_payload WITH ''.
-        CONDENSE eway_payload NO-GAPS.
       ENDIF.
+      CLEAR:wa_eway_custmizing.
+      "------------------------------ End State Mapping-------------------------------------
+      IF wa_ewbl-address1_of_consignor IS INITIAL.
+        wa_ewbl-address1_of_consignor = wa_plnt-housenumber.
+      ENDIF.
+      IF wa_ewbl-address2_of_consignor IS INITIAL.
+        wa_ewbl-address2_of_consignor = wa_plnt-housenumber.
+      ENDIF.
+      IF wa_ewbl-place_of_consignor IS INITIAL.
+        wa_ewbl-place_of_consignor = wa_plnt-cityname.
+      ENDIF.
+      IF wa_ewbl-pincode_of_consignor IS INITIAL.
+        wa_ewbl-pincode_of_consignor = wa_plnt-postalcode.
+      ENDIF.
+      IF wa_ewbl-actual_from_state_name IS INITIAL.
+        wa_ewbl-actual_from_state_name = wa_plnt-postalcode.
+      ENDIF.
+      IF wa_ewbl-state_of_consignor IS INITIAL.
+        wa_ewbl-state_of_consignor = wa_plnt-region.
+      ENDIF.
+*        wa_ewbl-pincode_of_consignor    = wa_adds-postalcode. "248001.
+      CLEAR : wa_plnt, wa_brch, wa_adds.
+      "wa_gstn, wa_stat, wa_addrs.
+
+      READ TABLE it_vend INTO DATA(wa_vend) WITH KEY supplier = wa_rseg-invoicingparty.
+      READ TABLE it_addb INTO DATA(wa_addb) WITH KEY addressid = wa_vend-addressid.
+      "Mapping Table for Region -ZSTA
+      "     READ TABLE it_stat INTO wa_stat WITH KEY region = wa_addb-regio.
+
+      CONCATENATE wa_addb-streetname
+                  wa_addb-streetprefixname1
+                  wa_addb-streetprefixname2
+                  wa_addb-streetsuffixname1
+                  wa_addb-streetsuffixname2
+             INTO DATA(lv_consignee_addrs).
+      " wa_ewbl-gstin_of_consignee = '27AAECS5979D1Z0'.
+      wa_ewbl-gstin_of_consignee      = wa_vend-taxnumber3.
+      wa_ewbl-legal_name_of_consignee = wa_vend-organizationbpname1.
+
+      wa_ewbl-address1_of_consignee   = lv_consignee_addrs.
+      wa_ewbl-address2_of_consignee   = lv_consignee_addrs.
+      wa_ewbl-place_of_consignee      = wa_addb-cityname.
+      wa_ewbl-pincode_of_consignee    = wa_addb-postalcode. "'400001'
+      "wa_addb-Region = '27'.
+      "------------------------------ Begin State Mapping-------------------------------------
+
+      READ TABLE mt_customizing INTO wa_eway_custmizing WITH KEY fieldname = 'STATECODELIST' fieldvalue3 = wa_addb-region.
+      IF sy-subrc EQ 0.
+        wa_ewbl-state_of_supply      = wa_eway_custmizing-fieldvalue2. "wa_stat-stname.
+        wa_ewbl-actual_to_state_name  = wa_eway_custmizing-fieldvalue2. "wa_stat-stname.
+      ENDIF.
+      CLEAR:wa_eway_custmizing.
+
+      "------------------------------ End State Mapping-------------------------------------
+      CLEAR :  wa_vend, wa_addb.
+      ", wa_stat.
+
+      READ TABLE it_mseg INTO DATA(wa_mseg) WITH KEY materialdocument = rdmaterialdocument
+                                                     materialdocumentyear = rdmaterialdocumentyear.
+      "Data Coming from Material Document
+      "      READ TABLE it_vrej INTO wa_vrej WITH KEY mblnr = wa_mseg-mblnr
+      "                                              mjahr = wa_mseg-mjahr.
+
+      " Mapping for Distance Calculation
+      "     READ TABLE it_zdst INTO wa_zdst WITH KEY zfpin = wa_ewbl-pincode_of_consignor
+      "                                              ztpin = wa_ewbl-pincode_of_consignee.
+      " --- 7. Transport Data from Cockpit ---
+      SELECT SINGLE transporterid, transportername, transporterdocumentnumber,
+             transportationmode, vehicletype, transportationdistance, vehiclenumber, transporterdocumentdate
+        FROM zzeinv_cockpit_i
+        WHERE docno = @rdmaterialdocument AND docyear = @rdmaterialdocumentyear AND bukrs = @wa_rseg-companycode
+        INTO @DATA(ls_trans).
+      wa_ewbl-vehicle_type                    = ls_trans-vehicletype.
+      if ls_trans-TransportationMode = 000.
+         wa_ewbl-transportation_mode = ' '.
+      else.
+        wa_ewbl-transportation_mode             = 1."ls_trans-transportationmode.
+      endif.
+      wa_ewbl-vehicle_number                  = ls_trans-vehiclenumber.
+      wa_ewbl-transporter_id                  = ls_trans-transporterid.
+      wa_ewbl-transporter_name                = ls_trans-transportername.
+      wa_ewbl-trans_document_number           = ls_trans-transporterdocumentnumber.
+      wa_ewbl-transportation_distance           = ls_trans-transportationdistance.
+      IF wa_mseg-yy1_lrdate_mmi IS NOT INITIAL.
+        CONCATENATE wa_mseg-yy1_lrdate_mmi+6(2) '/'
+                    wa_mseg-yy1_lrdate_mmi+4(2) '/'
+                    wa_mseg-yy1_lrdate_mmi(4)
+               INTO wa_ewbl-transporter_document_date.
+      ELSE.
+        DATA(lv_sydatum) =   cl_abap_context_info=>get_system_date( ).
+        CONCATENATE lv_sydatum+6(2) '/'
+                    lv_sydatum+4(2) '/'
+                    lv_sydatum(4)
+               INTO wa_ewbl-transporter_document_date.
+      ENDIF.
+      IF wa_ewbl-transportation_distance IS INITIAL.
+        READ TABLE mt_customizing INTO wa_eway_custmizing WITH KEY fieldname = 'DISTANCE'
+                                                                       fieldvalue2 = wa_ewbl-pincode_of_consignor
+                                                                       fieldvalue3 = wa_ewbl-pincode_of_consignee.
+
+        IF sy-subrc EQ 0 AND wa_eway_custmizing-fieldvalue4 IS NOT INITIAL .
+          wa_ewbl-transportation_distance       = wa_eway_custmizing-fieldvalue4. " Mapping for Distance calculation
+        ELSE.
+          wa_ewbl-transportation_distance       = 0.
+        ENDIF.
+      ENDIF.
+      DATA : lv_dist TYPE string.
+      lv_dist = wa_ewbl-transportation_distance.
+      CONDENSE lv_dist.
+      wa_ewbl-transportation_distance = lv_dist..
+      CLEAR:wa_eway_custmizing.
+      IF ( wa_ewbl-state_of_consignor EQ wa_ewbl-actual_from_state_name ) AND
+         ( wa_ewbl-state_of_supply EQ wa_ewbl-actual_to_state_name ).
+        wa_ewbl-transaction_type = '1'.
+      ENDIF.
+      IF ( wa_ewbl-state_of_consignor EQ wa_ewbl-actual_from_state_name ) AND
+         ( wa_ewbl-state_of_supply NE wa_ewbl-actual_to_state_name ).
+        wa_ewbl-transaction_type = '2'.
+      ENDIF.
+      IF ( wa_ewbl-state_of_consignor NE wa_ewbl-actual_from_state_name ) AND
+         ( wa_ewbl-state_of_supply EQ wa_ewbl-actual_to_state_name ).
+        wa_ewbl-transaction_type = '3'.
+      ENDIF.
+      IF ( wa_ewbl-state_of_consignor NE wa_ewbl-actual_from_state_name ) AND
+         ( wa_ewbl-state_of_supply NE wa_ewbl-actual_to_state_name ).
+        wa_ewbl-transaction_type = '4'.
+      ENDIF.
+
+      eway_payload_structure = wa_ewbl.
+      /ui2/cl_json=>serialize(
+      EXPORTING
+        data             = wa_ewbl
+        pretty_name   = /ui2/cl_json=>pretty_mode-low_case
+      RECEIVING
+        r_json           = eway_payload
+    ).
+      REPLACE ALL OCCURRENCES OF 'usergstin' IN eway_payload WITH 'userGstin'.
+      REPLACE 'usergstin' IN eway_payload WITH 'userGstin'.
+      REPLACE 'itemlist'  IN eway_payload WITH 'itemList'.
+      REPLACE ALL OCCURRENCES OF '\' IN eway_payload WITH ''.
+      CONDENSE eway_payload NO-GAPS.
+    ENDIF.
 *    ENDIF.
   ENDMETHOD.
 
@@ -2125,7 +2350,27 @@ else.
 
     wa_ewbl-document_date   = |{ ls_bill_head-billingdocumentdate+6(2) }/{ ls_bill_head-billingdocumentdate+4(2) }/{ ls_bill_head-billingdocumentdate(4) }|.
     wa_ewbl-generate_status = '1'.
-    lv_sgstin = '05AAABB0639G1Z8'.
+    """""""""""""""""""""""""added by trupti to pass system wise gstin
+    " 1. Get System ID using Cloud API
+    DATA(lo_current_tenant) = xco_cp=>current->tenant( ).
+*
+*
+*      " 2. Get the URL object (e.g., for UI)
+    DATA(lo_url) = lo_current_tenant->get_url( xco_cp_tenant=>url_type->ui ).
+*
+*      " 3. Get the actual string value
+    DATA(lv_host) = lo_url->get_host( ).
+    DATA(lv_sysid) = 'DEV'.
+    READ TABLE mt_customizing INTO DATA(wa_custmizing) WITH KEY fieldname = 'S4SYSTYPE' fieldvalue1 = lv_host.
+    IF sy-subrc EQ 0.
+      lv_sysid = wa_custmizing-fieldvalue2.
+    ENDIF.
+
+    """"""""""""""""""""""""""""""""""""added by trupti
+    IF lv_sysid = 'DEV'.
+
+      lv_sgstin = '05AAABB0639G1Z8'.
+    ENDIF.
     " Seller (Consignor) Information
     READ TABLE it_plnt INTO DATA(ls_plnt) INDEX 1.
     IF sy-subrc = 0.
@@ -2172,8 +2417,8 @@ else.
     wa_ewbl-transporter_id          = ls_trans-transporterid.
     wa_ewbl-transporter_name        = ls_trans-transportername.
     wa_ewbl-trans_document_number   = ls_trans-transporterdocumentnumber.
-    wa_ewbl-transportation_mode             = '1'.
-    " wa_ewbl-transportation_mode     = COND #( WHEN ls_trans-transportationmode IS NOT INITIAL THEN ls_trans-transportationmode ELSE '1' ).
+*    wa_ewbl-transportation_mode             = '1'.
+    wa_ewbl-transportation_mode     = COND #( WHEN ls_trans-transportationmode = 000 THEN ' ' else '1'  ).
     wa_ewbl-vehicle_type            = COND #( WHEN ls_trans-vehicletype IS NOT INITIAL THEN ls_trans-vehicletype ELSE 'R' ).
     wa_ewbl-vehicle_number          = ls_trans-vehiclenumber.
 
@@ -2276,8 +2521,32 @@ else.
 
   METHOD generate_einv.
     DATA: wa_einv_rslt TYPE ty_einv_rslt.
-    DATA(lv_baseurl) = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue3.
-    DATA(lv_einv) = mt_customizing[   fieldname = 'LOGIN' fieldvalue1 = 'EINV_GENERATE' ]-fieldvalue3.
+
+    free : et_return.
+
+    " 1. Get System ID using Cloud API
+    DATA(lo_current_tenant) = xco_cp=>current->tenant( ).
+*
+*
+*      " 2. Get the URL object (e.g., for UI)
+    DATA(lo_url) = lo_current_tenant->get_url( xco_cp_tenant=>url_type->ui ).
+*
+*      " 3. Get the actual string value
+    DATA(lv_host) = lo_url->get_host( ).
+*      DATA(lv_sysid) = 'DEV'.
+    READ TABLE mt_customizing INTO DATA(wa_eway_custmizing) WITH KEY fieldname = 'S4SYSTYPE' fieldvalue1 = lv_host.
+    IF sy-subrc EQ 0.
+      DATA(lv_sysid) = wa_eway_custmizing-fieldvalue2.
+    ENDIF.
+
+
+    IF lv_sysid = 'PRD'.
+      DATA(lv_baseurl) = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue2.
+      DATA(lv_einv)    = mt_customizing[   fieldname = 'LOGIN' fieldvalue1 = 'EINV_GENERATE' ]-fieldvalue2.
+    ELSE.
+      lv_baseurl = mt_customizing[   fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue3.
+      lv_einv    = mt_customizing[   fieldname = 'LOGIN' fieldvalue1 = 'EINV_GENERATE' ]-fieldvalue3.
+    ENDIF.
 *    DATA(lv_baseurl) = 'https://clientbasic.mastersindia.co'.
 *     DATA(lv_einv)   = '/generateEinvoice'.
 
@@ -2837,7 +3106,11 @@ else.
       rs_input-transporter_document_date      = ls_irn-transporterdocumentdate.
       rs_input-vehicle_number                       = ls_irn-vehiclenumber.
       rs_input-transporter_name                    = ls_irn-transportername.
-      rs_input-transportation_mode                = ls_irn-transportationmode.
+      if ls_irn-transportationmode = 000.
+         rs_input-transportation_mode                = ' '."ls_irn-transportationmode.
+      else.
+         rs_input-transportation_mode                = '1'."ls_irn-transportationmode.
+      endif.
       rs_input-vehicle_type                            = ls_irn-vehicletype.
       rs_input-distance                                 = ls_irn-transportationdistance.
     ENDIF.
@@ -2850,8 +3123,30 @@ else.
 
   METHOD generate_ewaybill_by_irn_data.
     DATA: wa_einv_rslt TYPE ty_einv_rslt.
-    DATA(lv_baseurl) = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue3.
-    DATA(lv_einv) = mt_customizing[   fieldname = 'LOGIN' fieldvalue1 = 'EWAY_BY_IRN' ]-fieldvalue3.
+
+    " 1. Get System ID using Cloud API
+    DATA(lo_current_tenant) = xco_cp=>current->tenant( ).
+*
+*
+*      " 2. Get the URL object (e.g., for UI)
+    DATA(lo_url) = lo_current_tenant->get_url( xco_cp_tenant=>url_type->ui ).
+*
+*      " 3. Get the actual string value
+    DATA(lv_host) = lo_url->get_host( ).
+    DATA(lv_sysid) = 'DEV'.
+    READ TABLE mt_customizing INTO DATA(wa_eway_custmizing) WITH KEY fieldname = 'S4SYSTYPE' fieldvalue1 = lv_host.
+    IF sy-subrc EQ 0.
+      lv_sysid = wa_eway_custmizing-fieldvalue2.
+    ENDIF.
+
+    IF lv_sysid = 'PRD'.
+      DATA(lv_baseurl) = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue2.
+      DATA(lv_einv) = mt_customizing[   fieldname = 'LOGIN' fieldvalue1 = 'EWAY_BY_IRN' ]-fieldvalue2.
+    ELSE.
+      lv_baseurl = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue3.
+      lv_einv = mt_customizing[   fieldname = 'LOGIN' fieldvalue1 = 'EWAY_BY_IRN' ]-fieldvalue3.
+    ENDIF.
+
     CONCATENATE lv_baseurl lv_einv  INTO DATA(lv_einv_url).
     TRY.
         DATA(lv_dest) = cl_http_destination_provider=>create_by_url( i_url =   lv_einv_url  ).
@@ -2959,8 +3254,30 @@ else.
 
   METHOD cancel_einv.
     DATA: wa_einv_rslt TYPE ty_einv_rslt.
-    DATA(lv_baseurl) = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue3.
-    DATA(lv_einv) = mt_customizing[   fieldname = 'LOGIN' fieldvalue1 = 'EINV_CANCEL' ]-fieldvalue3.
+    " 1. Get System ID using Cloud API
+    DATA(lo_current_tenant) = xco_cp=>current->tenant( ).
+*
+*
+*      " 2. Get the URL object (e.g., for UI)
+    DATA(lo_url) = lo_current_tenant->get_url( xco_cp_tenant=>url_type->ui ).
+*
+*      " 3. Get the actual string value
+    DATA(lv_host) = lo_url->get_host( ).
+    DATA(lv_sysid) = 'DEV'.
+    READ TABLE mt_customizing INTO DATA(wa_eway_custmizing) WITH KEY fieldname = 'S4SYSTYPE' fieldvalue1 = lv_host.
+    IF sy-subrc EQ 0.
+      lv_sysid = wa_eway_custmizing-fieldvalue2.
+    ENDIF.
+
+
+    IF lv_sysid = 'PRD'.
+      DATA(lv_baseurl) = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue2.
+      DATA(lv_einv) = mt_customizing[   fieldname = 'LOGIN' fieldvalue1 = 'EINV_CANCEL' ]-fieldvalue2.
+    ELSE.
+      lv_baseurl = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue3.
+      lv_einv    = mt_customizing[   fieldname = 'LOGIN' fieldvalue1 = 'EINV_CANCEL' ]-fieldvalue3.
+    ENDIF.
+
     CONCATENATE lv_baseurl lv_einv  INTO DATA(lv_einv_url).
     TRY.
         DATA(lv_dest) = cl_http_destination_provider=>create_by_url( i_url =   lv_einv_url  ).
@@ -3091,9 +3408,29 @@ else.
     DATA: wa_ewb_rslt TYPE ty_einv_rslt.
     CLEAR: einv_number, et_return.
 
-    " 1. Retrieve Configured Base URL and the Specific E-Way Bill Cancel Endpoint
-    DATA(lv_baseurl) = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue3.
-    DATA(lv_ewb)     = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'EWAY_CANCEL' ]-fieldvalue3.
+    " 1. Get System ID using Cloud API
+    DATA(lo_current_tenant) = xco_cp=>current->tenant( ).
+*
+*
+*      " 2. Get the URL object (e.g., for UI)
+    DATA(lo_url) = lo_current_tenant->get_url( xco_cp_tenant=>url_type->ui ).
+*
+*      " 3. Get the actual string value
+    DATA(lv_host) = lo_url->get_host( ).
+    DATA(lv_sysid) = 'DEV'.
+    READ TABLE mt_customizing INTO DATA(wa_eway_custmizing) WITH KEY fieldname = 'S4SYSTYPE' fieldvalue1 = lv_host.
+    IF sy-subrc EQ 0.
+      lv_sysid = wa_eway_custmizing-fieldvalue2.
+    ENDIF.
+
+    IF lv_sysid = 'PRD'.
+      " 1. Retrieve Configured Base URL and the Specific E-Way Bill Cancel Endpoint
+      DATA(lv_baseurl) = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue2.
+      DATA(lv_ewb)     = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'EWAY_CANCEL' ]-fieldvalue2.
+    ELSE.
+      lv_baseurl = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue3.
+      lv_ewb     = mt_customizing[ fieldname = 'LOGIN' fieldvalue1 = 'EWAY_CANCEL' ]-fieldvalue3.
+    ENDIF.
 
     CONCATENATE lv_baseurl lv_ewb INTO DATA(lv_ewb_url).
 
@@ -3168,6 +3505,215 @@ else.
 
       CATCH cx_http_dest_provider_error INTO DATA(lo_dest_provider_error).
         lo_dest_provider_error->get_longtext( RECEIVING result = DATA(lv_dest_error_logntext) ).
+        APPEND VALUE #( message = lv_dest_error_logntext ) TO et_return.
+    ENDTRY.
+  ENDMETHOD.
+
+
+  METHOD generatepartb.
+    DATA : wa_partb      TYPE ty_partb,
+           wa_resp_partb TYPE ty_resp_partb.
+
+    SELECT
+    SINGLE bukrs,
+           docno,
+           docyear,
+           doctype,
+           irn,
+           ewaybillno,
+           ewaystatus                              "#EC CI_NO_TRANSFORM
+      FROM zzeinv_cockpit_i
+    WHERE docno    = @im_billingdoc
+      AND bukrs    = @im_bukrs
+      AND docyear  = @im_gjahr
+    INTO @DATA(ls_einv).
+
+
+    SELECT SINGLE bukrs,docno,docyear,doctype,irn,transporterid,transportername,
+        transporterdocumentnumber, TransporterDocumentDate,transportationmode,vehicletype,
+        transportationdistance,vehiclenumber,bupla FROM zzeinv_cockpit_i
+             WHERE   docno = @im_billingdoc
+             INTO  @DATA(ls_irn).
+
+
+    select billingdocument,
+           billingdocumentitem,
+           plant
+      from i_billingdocumentitem
+      where BillingDocument = @im_billingdoc
+       into table @data(lt_bill) .
+
+       READ table lt_bill into data(ls_bill) index 1.
+
+
+
+    SELECT single plant, plantname, i_plant~valuationarea, businessplace,
+           i_address_2~organizationname1, i_address_2~streetname,
+           i_address_2~postalcode, i_address_2~cityname, i_address_2~region,
+           i_address_2~housenumber
+      FROM i_valuationarea WITH PRIVILEGED ACCESS  "#EC CI_NO_TRANSFORM
+      INNER JOIN i_plant ON i_valuationarea~valuationarea = i_plant~valuationarea
+      LEFT OUTER JOIN i_address_2 WITH PRIVILEGED ACCESS ON i_plant~addressid = i_address_2~addressid
+      WHERE i_valuationarea~companycode = @im_bukrs
+        AND i_plant~plant = @ls_bill-plant
+      INTO  @DATA(ls_plnt).
+
+    SELECT SINGLE in_gstidentificationnumber
+      FROM i_in_businessplacetaxdetail
+      WHERE companycode = @im_bukrs
+        AND businessplace = @ls_plnt-Plant
+      INTO @DATA(lv_sgstin).
+
+    " 1. Get System ID using Cloud API
+    DATA(lo_current_tenant) = xco_cp=>current->tenant( ).
+*
+*      " 2. Get the URL object (e.g., for UI)
+    DATA(lo_url) = lo_current_tenant->get_url( xco_cp_tenant=>url_type->ui ).
+*
+*      " 3. Get the actual string value
+    DATA(lv_host) = lo_url->get_host( ).
+*      DATA(lv_sysid) = 'DEV'.
+    READ TABLE mt_customizing INTO DATA(wa_eway_custmizing) WITH KEY fieldname = 'S4SYSTYPE' fieldvalue1 = lv_host.
+    IF sy-subrc EQ 0.
+      DATA(lv_sysid) = wa_eway_custmizing-fieldvalue2.
+    ENDIF.
+
+
+    IF ls_irn is not initial.
+      wa_partb-vehicle_number              = ls_irn-vehiclenumber.
+      wa_partb-vehicle_type                = ls_irn-vehicletype.
+      wa_partb-transporter_document_number = ls_irn-transporterdocumentnumber.
+*      wa_partb-transporter_document_date   = ls_irn-TransporterDocumentDate.
+
+      concatenate ls_irn-TransporterDocumentDate+06(02)
+                  ls_irn-TransporterDocumentDate+04(02)
+                  ls_irn-TransporterDocumentDate+0(04)
+           into wa_partb-transporter_document_date
+           SEPARATED BY '/'.
+
+      If  ls_irn-transportationmode = 000.
+          wa_partb-mode_of_transport           = ''.
+      else.
+          wa_partb-mode_of_transport  = '1'."ls_irn-transportationmode.
+      endif.
+
+    ENDIF.
+    wa_partb-access_token     = im_token.
+    wa_partb-eway_bill_number = ls_einv-ewaybillno.
+    if lv_sysid = 'PRD'.
+       wa_partb-userGstin        = lv_sgstin.
+    else.
+       wa_partb-userGstin        = '05AAABB0639G1Z8'.
+    endif.
+    clear : lv_sgstin.
+    if ls_plnt is not initial.
+       READ TABLE mt_customizing INTO DATA(wa_cust) WITH KEY fieldname = 'STATECODELIST' fieldvalue3 = ls_plnt-region.
+      IF sy-subrc = 0.
+         wa_partb-state_of_consignor = wa_cust-fieldvalue2.
+      endif.
+         wa_partb-place_of_consignor = ls_plnt-cityname..
+
+    endif.
+
+    wa_partb-reason_code = 'due to break down'.
+    wa_partb-reason_for_vehicle_updation = 'Vehicle Change'.
+    wa_partb-data_source = 'SAP'.
+
+
+    lv_payload = /ui2/cl_json=>serialize(
+     data        = wa_partb
+     pretty_name = /ui2/cl_json=>pretty_mode-low_case ).
+
+    replace 'reason_code' in lv_payload with 'reason_code_for_vehicle_updation'.
+    replace 'usergstin' in lv_payload with 'userGstin'.
+*    " 1. Get System ID using Cloud API
+*    DATA(lo_current_tenant) = xco_cp=>current->tenant( ).
+**
+**
+**      " 2. Get the URL object (e.g., for UI)
+*    DATA(lo_url) = lo_current_tenant->get_url( xco_cp_tenant=>url_type->ui ).
+**
+**      " 3. Get the actual string value
+*    DATA(lv_host) = lo_url->get_host( ).
+**      DATA(lv_sysid) = 'DEV'.
+*    READ TABLE mt_customizing INTO DATA(wa_eway_custmizing) WITH KEY fieldname = 'S4SYSTYPE' fieldvalue1 = lv_host.
+*    IF sy-subrc EQ 0.
+*      DATA(lv_sysid) = wa_eway_custmizing-fieldvalue2.
+*    ENDIF.
+
+    IF lv_sysid = 'PRD'.
+      DATA(lv_baseurl) = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue2.
+      DATA(lv_ewaybill) = mt_customizing[   fieldname = 'LOGIN' fieldvalue1 = 'EWAY_PARTB' ]-fieldvalue2.
+    ELSE.
+      lv_baseurl = mt_customizing[    fieldname = 'LOGIN' fieldvalue1 = 'BASEURL' ]-fieldvalue3.
+      lv_ewaybill = mt_customizing[   fieldname = 'LOGIN' fieldvalue1 = 'EWAY_PARTB' ]-fieldvalue3.
+    ENDIF.
+
+    CONCATENATE lv_baseurl lv_ewaybill  INTO DATA(lv_ewaybill_url).
+    TRY.
+        DATA(lv_dest) = cl_http_destination_provider=>create_by_url( i_url =   lv_ewaybill_url  ).
+
+
+        TRY.
+            DATA(lo_clnt) = cl_web_http_client_manager=>create_by_http_destination( EXPORTING i_destination = lv_dest ).
+
+            lo_clnt->get_http_request( RECEIVING r_http_request = DATA(lo_request) ).
+
+            lo_request->set_header_field( i_name  = '~request_method' i_value = 'POST' ).
+            lo_request->set_header_field( i_name  = 'Content-Type'    i_value = 'application/json' ).
+            "lo_request->set_header_field( i_name  = 'accept'          i_value = 'application/json' ).
+            lo_request->set_text( lv_payload ).
+
+            TRY.
+                lo_clnt->execute(
+                  EXPORTING
+                    i_method   =  if_web_http_client=>post
+              RECEIVING
+                r_response = DATA(ls_response) ).
+
+                ls_response->get_text(
+                  RECEIVING
+                    r_value = DATA(lv_eway)
+                ).
+                IF lv_eway CS 'Success'.
+                  /ui2/cl_json=>deserialize(
+                   EXPORTING
+                     json             = lv_eway
+
+                   CHANGING
+                     data             = wa_resp_partb
+                                      ).
+
+                 ET_RESP = WA_RESP_PARTB.
+                ELSE.
+                  APPEND VALUE #( message = lv_eway ) TO et_return.
+                ENDIF.
+
+              CATCH cx_web_http_client_error INTO DATA(lo_http_error).
+                lo_http_error->get_longtext(
+*                EXPORTING
+*                  preserve_newlines =
+                  RECEIVING
+                    result            = DATA(lv_error_logntext)
+                ).
+                APPEND VALUE #( message = lv_error_logntext ) TO et_return.
+                "handle exception
+            ENDTRY.
+          CATCH cx_web_http_client_error INTO lo_http_error.
+            lo_http_error->get_longtext(
+*                EXPORTING
+*                  preserve_newlines =
+                    RECEIVING
+                      result            = lv_error_logntext
+                  ).
+            APPEND VALUE #( message = lv_error_logntext ) TO et_return.
+            "handle exception
+        ENDTRY.
+      CATCH cx_http_dest_provider_error INTO DATA(lo_dest_provider_error).
+        lo_dest_provider_error->get_longtext(
+            RECEIVING
+              result            = DATA(lv_dest_error_logntext)
+          ).
         APPEND VALUE #( message = lv_dest_error_logntext ) TO et_return.
     ENDTRY.
   ENDMETHOD.

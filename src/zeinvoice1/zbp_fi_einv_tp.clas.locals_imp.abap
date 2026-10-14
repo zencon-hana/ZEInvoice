@@ -72,6 +72,10 @@ CLASS lhc_z_fi_einv_tp DEFINITION INHERITING FROM cl_abap_behavior_handler.
       IMPORTING keys FOR ACTION z_fi_einv_tp~downloadeway RESULT result.
     METHODS getdefaultsfortransport FOR READ
       IMPORTING keys FOR FUNCTION z_fi_einv_tp~getdefaultsfortransport RESULT result.
+    METHODS generatepartb FOR MODIFY
+      IMPORTING keys FOR ACTION z_fi_einv_tp~generatepartb.
+    METHODS precheck_generateeinvoice FOR PRECHECK
+      IMPORTING keys FOR ACTION z_fi_einv_tp~generateeinvoice.
 
     METHODS create_split_message
       IMPORTING
@@ -295,7 +299,7 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
       sourcemodule,documenttype,documentdate,postingdate,
       reference,customer,customername,totalamount,
       transactioncurrency,einvstatus,ackno,ackdate,
-      irn,irnstatus,ewaybillno,ewaystatus,statuscriticality
+      irn,irnstatus,ewaybillno,ewaystatus,statuscriticality,vehicleNumber,flag
      FROM z_fi_einv_tp
       FOR ALL ENTRIES IN @keys
       WHERE companycode    = @keys-companycode
@@ -316,6 +320,9 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
     DATA: lt_return TYPE zcl_eway_integration_util=>tty_return.
     DATA: lt_create TYPE TABLE FOR CREATE zzeinv_cockpit_i,
           lt_update TYPE TABLE FOR UPDATE zzeinv_cockpit_i.
+    data : lv_flag type string,
+           lv_text type string,
+           lv_item type string.
 
     " 1. Read Selected Documents from Projection
     SELECT companycode, fiscalyear, documentnumber,documenttype,
@@ -366,14 +373,41 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
 
     " 3. Process Each Document
     LOOP AT lt_fi_docs INTO DATA(ls_fi_doc).
-    "validation to check accounting doc is generated or not for billing
-    if ls_fi_Doc-SourceModule = 'SD'.
-      select
-      single *
-      from I_JournalEntry                             "#EC CI_ALL_FIELDS_NEEDED
-      where DocumentReferenceID = @ls_fi_doc-reference
-      into @data(ls_accdoc).
-     Endif.
+      "validation to check accounting doc is generated or not for billing
+      IF ls_fi_doc-sourcemodule = 'SD'.
+        SELECT billingdocument,
+               billingdocumentitem,
+               taxamount
+        FROM i_billingdocumentitem
+        WHERE billingdocument = @ls_fi_doc-documentnumber
+          AND billingquantity NE 0
+        INTO TABLE @DATA(lt_tax).
+
+        if lt_tax is not initial.
+        SELECT billingdocument,
+               billingdocumentitem,
+               conditiontype,
+               conditionamount,
+               conditionratevalue
+          FROM i_billingdocumentitemprcgelmnt
+          FOR ALL ENTRIES IN @lt_tax
+          WHERE billingdocument = @lt_tax-billingdocument
+            AND billingdocumentitem = @lt_tax-billingdocumentitem
+            AND conditioninactivereason = '' " Only active conditions
+            AND conditiontype IN ( 'JOCG','JOSG','JOIG' )
+*          and ConditionAmount gt 0
+          INTO TABLE @DATA(lt_pricing).
+        endif.
+
+
+
+
+        SELECT
+        SINGLE *
+        FROM i_journalentry                   "#EC CI_ALL_FIELDS_NEEDED
+        WHERE documentreferenceid = @ls_fi_doc-reference
+        INTO @DATA(ls_accdoc).
+      ENDIF.
 
       " Validation: Check if IRN already generated
       READ TABLE lt_existing_cockpit INTO DATA(ls_check_exist)
@@ -392,7 +426,7 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
         CONTINUE.
       ENDIF.
 
-      IF ls_accdoc-AccountingDocument is initial and ls_fi_Doc-SourceModule = 'SD'..
+      IF ls_accdoc-accountingdocument IS INITIAL AND ls_fi_doc-sourcemodule = 'SD'..
         APPEND VALUE #( %tky = VALUE #( companycode    = ls_fi_doc-companycode
                                         documentnumber = ls_fi_doc-documentnumber
                                         fiscalyear     = ls_fi_doc-fiscalyear )
@@ -402,6 +436,56 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
                       ) TO reported-z_fi_einv_tp.
         CONTINUE.
       ENDIF.
+
+*      LOOP AT lt_tax INTO DATA(ls_tax).
+*        READ TABLE lt_pricing INTO DATA(ls_pricing) WITH KEY billingdocument = ls_tax-billingdocument
+*                                                             billingdocumentitem = ls_tax-billingdocumentitem.
+*        IF ls_pricing-conditiontype = 'JOCG' OR  ls_pricing-conditiontype = 'JOSG' OR ls_pricing-conditiontype = 'JOIG' AND ls_fi_doc-sourcemodule = 'SD'..
+*
+*        ELSE.
+*          CONCATENATE 'There is no tax for.'
+*                      ls_tax-billingdocument 'and item'
+*                      ls_tax-billingdocumentitem
+*                 INTO DATA(lv_text) SEPARATED BY space.
+*          APPEND VALUE #( %tky = VALUE #( companycode    = ls_fi_doc-companycode
+*                                          documentnumber = ls_fi_doc-documentnumber
+*                                          fiscalyear     = ls_fi_doc-fiscalyear )
+*                          %msg = new_message_with_text(
+*                                   severity = if_abap_behv_message=>severity-error
+*                                   text     = lv_text   )
+*                        ) TO reported-z_fi_einv_tp.
+*          CONTINUE.
+*        ENDIF.
+*        CLEAR : ls_pricing.
+*
+*      ENDLOOP.
+*    Clear : lv_flag,lv_text.
+*    LOOP AT lt_tax INTO DATA(ls_tax).
+*        READ TABLE lt_pricing INTO DATA(ls_pricing) WITH KEY billingdocument = ls_tax-billingdocument
+*                                                             billingdocumentitem = ls_tax-billingdocumentitem.
+*            IF ls_pricing-conditiontype = 'JOCG' OR  ls_pricing-conditiontype = 'JOSG' OR ls_pricing-conditiontype = 'JOIG' AND ls_fi_doc-sourcemodule = 'SD'.
+*            else.
+*              lv_flag = 'X'.
+*
+*              CONCATENATE 'There is no tax for.'
+*                          ls_tax-billingdocument 'and item' lv_item
+*                          ls_tax-billingdocumentitem
+*                     INTO lv_text SEPARATED BY space.
+*            endif.
+*            lv_item = ls_tax-billingdocumentitem.
+*            CLEAR : ls_pricing.
+*    endloop.
+*
+*      IF lv_flag = 'X' AND ls_fi_doc-sourcemodule = 'SD'..
+*        APPEND VALUE #( %tky = VALUE #( companycode    = ls_fi_doc-companycode
+*                                        documentnumber = ls_fi_doc-documentnumber
+*                                        fiscalyear     = ls_fi_doc-fiscalyear )
+*                        %msg = new_message_with_text(
+*                                 severity = if_abap_behv_message=>severity-error
+*                                 text     = lv_text )
+*                      ) TO reported-z_fi_einv_tp.
+*        CONTINUE.
+*      ENDIF.
 
       CASE ls_fi_doc-sourcemodule.
         WHEN 'FI'.
@@ -433,7 +517,7 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
       ENDCASE.
 
       " B. Call API if Payload generated successfully
-      IF lt_return IS INITIAL AND ls_einv_payload IS NOT INITIAL.
+      IF lt_return IS INITIAL AND ls_einv_payload IS NOT INITIAL...
 
         lo_util->generate_einv(
        EXPORTING
@@ -450,6 +534,7 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
 
           " Prepare Date Fields for mapping
           DATA: lv_ack_date    TYPE d,
+                lv_ack_time    type string,
                 lv_eway_date   TYPE d,
                 lv_valid_date  TYPE d,
                 lv_system_date TYPE d,
@@ -475,7 +560,10 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
             DATA(lv_raw_ack) = ls_einv_number-results-message-ackdt.
             REPLACE ALL OCCURRENCES OF '-' IN lv_raw_ack WITH ''.
             REPLACE ALL OCCURRENCES OF ':' IN lv_raw_ack WITH ''.
+*            condense lv_raw_Ack.
+            REPLACE ALL OCCURRENCES OF ` ` IN lv_raw_ack WITH ``.
             lv_ack_date = lv_raw_ack(8).
+            lv_ack_time = lv_raw_ack+8(6).
           ENDIF.
 
           IF ls_einv_number-results-message-ewbdt IS NOT INITIAL.
@@ -510,6 +598,7 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
                         %cid =   lv_cid
 
                 ackno        = ls_einv_number-results-message-ackno
+                acktime      = lv_ack_time
                 ackdate      = lv_ack_date
                 irn          = ls_einv_number-results-message-irn
                 irnstatus    = ls_einv_number-results-message-status
@@ -612,9 +701,15 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
   METHOD get_instance_features.
     READ ENTITIES OF z_fi_einv_tp IN LOCAL MODE
        ENTITY z_fi_einv_tp
-       FIELDS ( irn einvstatus ewaybillno ewaystatus sourcemodule )
+       FIELDS ( irn einvstatus ewaybillno ewaystatus sourcemodule VehicleNumber flag )
        WITH CORRESPONDING #( keys )
        RESULT DATA(lt_docs).
+
+*       select
+*       single *
+*       from zzeinv_cockpit_i
+*       into @data(ls_cpit)
+*       where Docno =
 
     result = VALUE #( FOR ls_doc IN lt_docs
                       ( %tky = ls_doc-%tky
@@ -647,10 +742,15 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
                         %action-downloadeway     = COND #( WHEN  ls_doc-sourcemodule <> 'FI'
                                                            THEN if_abap_behv=>fc-o-enabled
                                                            ELSE if_abap_behv=>fc-o-disabled )
-                        %action-updttransdtl     = COND #( WHEN ls_doc-ewaybillno IS INITIAL AND ls_doc-sourcemodule <> 'FI'
+                        %action-updttransdtl     = COND #( WHEN ( ls_doc-ewaybillno IS INITIAL AND ls_doc-sourcemodule <> 'FI' ) OR
+                                                                ( ls_doc-ewaybillno IS NOT INITIAL AND ls_doc-sourcemodule <> 'FI' AND ls_doc-VehicleNumber is initial )
                                                            THEN if_abap_behv=>fc-o-enabled
                                                            ELSE if_abap_behv=>fc-o-disabled )
-                       %update             = COND #( WHEN ls_doc-ewaybillno IS NOT INITIAL OR  ls_doc-sourcemodule = 'FI'
+                       %action-GeneratePartB     = COND #( WHEN ( ls_doc-ewaybillno IS not INITIAL and ls_doc-flag = 'X' AND ls_doc-sourcemodule <> 'FI' )
+
+                                                           THEN if_abap_behv=>fc-o-disabled
+                                                           ELSE if_abap_behv=>fc-o-enabled )
+                        %update             = COND #( WHEN ls_doc-ewaybillno IS NOT INITIAL OR  ls_doc-sourcemodule = 'FI'
                                                                    THEN  if_abap_behv=>fc-o-disabled
                                                                    ELSE if_abap_behv=>fc-o-enabled )
                         %field-transporterid             = COND #( WHEN ls_doc-ewaybillno IS NOT INITIAL
@@ -816,9 +916,9 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
 
 
 
-      READ TABLE lt_fi_docs INTO DATA(ls_fi_docs) WITH KEY  companycode        = ls_key-companycode
-                                                                                          fiscalyear            =  ls_key-fiscalyear
-                                                                                         documentnumber = ls_key-documentnumber.
+      READ TABLE lt_fi_docs INTO DATA(ls_fi_docs) WITH KEY  companycode = ls_key-companycode
+                                                             fiscalyear =  ls_key-fiscalyear
+                                                         documentnumber = ls_key-documentnumber.
 
       IF ls_fi_docs-documenttype = 'F8' OR ls_fi_docs-documenttype = 'JSN' OR ls_fi_docs-sourcemodule = 'MM'.
 
@@ -1069,7 +1169,7 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
               lv_ewb_pdf      TYPE string,
               lv_ewb_date_raw TYPE string,
               lv_valid_raw    TYPE string.
-
+        CLEAR:lv_eway_payload,lv_ewb_no,lv_ewb_pdf,lv_ewb_date_raw,lv_valid_raw.
         " ======================================================================
         " ROUTING LOGIC: F8/JSN (Direct SD) vs Standard Invoices (By IRN)
         " ======================================================================
@@ -1207,9 +1307,26 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
             REPLACE ALL OCCURRENCES OF ':' IN lv_valid_raw WITH ''.
             lv_valid_date = lv_valid_raw(8).
           ENDIF.
-          IF lv_ewb_pdf IS NOT INITIAL.
+
+          IF lv_ewb_pdf IS NOT INITIAL AND  ( ls_docs-documenttype = 'F8' OR ls_docs-documenttype = 'JSN' ).
             lv_ewb_pdf =   |https://{ lv_ewb_pdf }|.
           ENDIF.
+""""""""""""""""""""added by trupti to update the flag
+
+      SELECT SINGLE bukrs,docno,docyear,doctype,irn,transporterid,transportername,
+         transporterdocumentnumber,transportationmode,vehicletype,
+         transportationdistance,vehiclenumber,transporterdocumentdate FROM zzeinv_cockpit_i
+          WHERE   docno = @ls_docs-documentnumber
+           INTO  @data(ls_ewbl) .
+
+        if ls_ewbl-VehicleNumber is not initial.
+          data(lv_flag) = 'X'.
+        endif.
+
+""""""""""""""""""""end
+
+
+
 
           " *** POPULATE UPDATE TABLE ***
           APPEND VALUE #(
@@ -1223,6 +1340,7 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
             vdtodate    = lv_valid_date
             ewayernam   = sy-uname
             ewaybillpdf = lv_ewb_pdf
+                   flag = lv_flag
           ) TO lt_update.
 
           " Success Message
@@ -1255,7 +1373,8 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
                           ) TO reported-z_fi_einv_tp.
           ENDLOOP.
         ENDIF.
-
+        CLEAR:lv_ewb_no,lv_ewb_date,lv_valid_date,lv_ewb_pdf,
+                  ls_einv_number,lt_einv_return,ls_eway_input,ls_mm_resp.
       ENDLOOP.
 
       " --- EXECUTE BULK UPDATE VIA EML ---
@@ -1286,7 +1405,17 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
 
     " 2. Check which records already exist in the Cockpit/Interface
     IF lt_proj_docs IS NOT INITIAL.
-      SELECT bukrs, docno, docyear                 "#EC CI_NO_TRANSFORM
+      SELECT bukrs,
+             docno,
+             docyear,
+             transporterid,
+             transportername,
+             transporterdocumentnumber,
+             transporterdocumentdate,
+             transportationmode,
+             vehicletype ,
+             transportationdistance ,
+             vehiclenumber                 "#EC CI_NO_TRANSFORM
         FROM zzeinv_cockpit_i
         FOR ALL ENTRIES IN @lt_proj_docs
         WHERE bukrs   = @lt_proj_docs-companycode
@@ -1306,12 +1435,45 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
                     fiscalyear     = <ls_key>-fiscalyear.
 
       " Check Existence in Cockpit table
-      READ TABLE lt_existing TRANSPORTING NO FIELDS
+      READ TABLE lt_existing into data(ls_existing) "TRANSPORTING NO FIELDS
            WITH KEY bukrs   = <ls_key>-companycode
                     docno   = <ls_key>-documentnumber
                     docyear = <ls_key>-fiscalyear.
 
       IF sy-subrc = 0.
+
+      if ls_input-transporterid is initial.
+         ls_input-transporterid = ls_existing-TransporterId.
+      endif.
+
+      if ls_input-transportername is initial.
+         ls_input-transportername = ls_existing-TransporterName.
+      endif.
+
+      if ls_input-transporterdocumentdate is initial.
+         ls_input-transporterdocumentdate = ls_existing-TransporterDocumentDate.
+      endif.
+
+      if ls_input-transporterdocumentnumber is initial.
+         ls_input-transporterdocumentnumber = ls_existing-transporterdocumentnumber.
+      endif.
+
+      if ls_input-transportationmode is initial.
+         ls_input-transportationmode = ls_existing-transportationmode.
+      endif.
+
+      if ls_input-vehiclenumber is initial.
+         ls_input-vehiclenumber  = ls_existing-vehiclenumber .
+      endif.
+
+       if ls_input-vehicleType is initial.
+         ls_input-vehicletype  = ls_existing-VehicleType .
+      endif.
+
+       if ls_input-TransportationDistance is initial.
+         ls_input-TransportationDistance  = ls_existing-TransportationDistance .
+      endif.
+
         " Entry Exists -> UPDATE
         APPEND VALUE #(
           %tky = VALUE #( bukrs   = <ls_key>-companycode
@@ -1540,7 +1702,15 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
         AND p~partnerfunction = 'SP'
       INTO TABLE @DATA(lt_transporter_data).
 
+
+
+
     LOOP AT keys INTO DATA(ls_key).
+      SELECT
+      SINGLE yy1_vehicle_no_bdh
+        FROM i_billingdocumentbasic
+       WHERE billingdocument = @ls_key-documentnumber
+        INTO @DATA(lv_vehno).
       APPEND INITIAL LINE TO result ASSIGNING FIELD-SYMBOL(<ls_result>).
 
       <ls_result>-%tky = ls_key-%tky.
@@ -1548,6 +1718,9 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
       " Set static defaults
       <ls_result>-%param-transportationmode = 1. " Road
       <ls_result>-%param-vehicletype        = 'R'. " Regular
+      IF lv_vehno IS NOT INITIAL.
+        <ls_result>-%param-vehiclenumber      = lv_vehno.
+      ENDIF.
 
       READ TABLE lt_transporter_data INTO DATA(ls_transporter)
            WITH KEY billingdocument = ls_key-documentnumber.
@@ -1559,6 +1732,235 @@ CLASS lhc_z_fi_einv_tp IMPLEMENTATION.
       ENDIF.
 
     ENDLOOP.
+
+  ENDMETHOD.
+
+  METHOD generatepartb.
+
+     data : lv_ewb_no type string,
+            lv_ewb_pdf TYPE string,
+            lv_ewb_date_raw type string,
+            lv_valid_raw type string,
+            lv_flag type string.
+     DATA: lt_update TYPE TABLE FOR UPDATE zzeinv_cockpit_i.
+*    DATA: lt_ewydata TYPE TABLE FOR UPDATE zzeinv_cockpit_i.
+
+    " 1. Read Selected Documents from Projection
+    SELECT *
+      FROM z_fi_einv_tp
+      FOR ALL ENTRIES IN @keys
+      WHERE companycode    = @keys-companycode
+        AND fiscalyear     = @keys-fiscalyear
+        AND documentnumber = @keys-documentnumber
+      INTO TABLE @DATA(lt_docs).
+
+    IF lt_docs IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    " 2. Fetch existing Cockpit Data
+    SELECT bukrs, docno, docyear, doctype, irn, ewaybillno, ewaystatus "#EC CI_NO_TRANSFORM
+      FROM zzeinv_cockpit_i
+      FOR ALL ENTRIES IN @lt_docs
+      WHERE docno   = @lt_docs-documentnumber
+        AND bukrs   = @lt_docs-companycode
+        AND docyear = @lt_docs-fiscalyear
+      INTO TABLE @DATA(lt_einv_cockpit).
+
+    " 3. Initialize Utility
+    zcl_eway_integration_util=>get_instance(
+      RECEIVING
+        ro_eway_util = DATA(lo_eway_util)
+    ).
+
+    lo_eway_util->get_token(
+      IMPORTING
+        ev_token  = DATA(lv_token)
+        et_return = DATA(lt_return)
+    ).
+
+    IF lv_token IS NOT INITIAL.
+
+      LOOP AT lt_docs INTO DATA(ls_docs).
+        CLEAR: lt_return. " Clear errors for current document
+        READ TABLE lt_einv_cockpit INTO DATA(ls_cockpit)
+             WITH KEY docno = ls_docs-documentnumber.
+
+        lo_eway_util->generatepartb(
+          EXPORTING
+            im_token      = lv_token
+            im_billingdoc = ls_docs-documentnumber
+            im_bukrs      = ls_docs-companycode
+            im_gjahr      = ls_docs-fiscalyear
+          IMPORTING
+            et_return     = DATA(lt_retn)
+            et_resp       = data(wa_resp)
+            et_pdfurl     = DATA(lv_pdfurl)
+        ).
+
+
+
+            " Map API response variables to unified variables
+            lv_ewb_no       = ls_docs-EWayBillNo.
+            lv_ewb_pdf      = wa_resp-results-message-url.
+            lv_ewb_date_raw = wa_resp-results-message-vehupddate.
+            lv_valid_raw    = wa_resp-results-message-validupto.
+            IF wa_resp-results-message-url IS NOT INITIAL.
+               lv_flag = 'X'.
+            Endif.
+
+        " ======================================================================
+        " SUCCESS HANDLING & UPDATE LOGIC
+        " ======================================================================
+        IF lv_ewb_no IS NOT INITIAL and lv_ewb_pdf is not initial..
+
+          DATA: lv_ewb_date   TYPE d,
+                lv_valid_date TYPE d.
+
+          " Date Conversion: EwbDt -> SAP Date
+          IF lv_ewb_date_raw IS NOT INITIAL.
+            REPLACE ALL OCCURRENCES OF '-' IN lv_ewb_date_raw WITH ''.
+            REPLACE ALL OCCURRENCES OF ':' IN lv_ewb_date_raw WITH ''.
+            lv_ewb_date = lv_ewb_date_raw(10).
+          ENDIF.
+
+          " Date Conversion: EwbValidTill -> SAP Date
+          IF lv_valid_raw IS NOT INITIAL.
+            REPLACE ALL OCCURRENCES OF '-' IN lv_valid_raw WITH ''.
+            REPLACE ALL OCCURRENCES OF ':' IN lv_valid_raw WITH ''.
+            lv_valid_date = lv_valid_raw(10).
+          ENDIF.
+
+          if lv_ewb_pdf cs 'https://'.
+          else.
+              IF lv_ewb_pdf IS NOT INITIAL AND  ( ls_docs-documenttype = 'F8' OR ls_docs-documenttype = 'JSN' ) .
+                lv_ewb_pdf =   |https://{ lv_ewb_pdf }|.
+              ENDIF.
+          endif.
+          " *** POPULATE UPDATE TABLE ***
+          APPEND VALUE #(
+            %tky = VALUE #( bukrs   = ls_docs-companycode
+                            docno   = ls_docs-documentnumber
+                            docyear = ls_docs-fiscalyear
+                            doctype = ls_docs-documenttype )
+            ewaybillno  = lv_ewb_no
+            ewaystatus  = 'A'        " Active
+            ewayerdat   = lv_ewb_date
+            vdtodate    = lv_valid_date
+            ewayernam   = sy-uname
+            ewaybillpdf = lv_ewb_pdf
+            flag        = lv_flag
+          ) TO lt_update.
+
+          " Success Message
+          if lv_ewb_pdf is not initial.
+          APPEND VALUE #( %tky = VALUE #( companycode    = ls_docs-companycode
+                                          documentnumber = ls_docs-documentnumber
+                                          fiscalyear     = ls_docs-fiscalyear )
+                           %msg = new_message_with_text(
+                                   text     = |E-Way Bill part B Generated: { lv_ewb_no }|
+                                   severity = if_abap_behv_message=>severity-success )
+                         ) TO reported-z_fi_einv_tp.
+           endif.
+
+        ELSE.
+          " ======================================================================
+          " ERROR HANDLING
+          " ======================================================================
+          LOOP AT lt_retn INTO DATA(ls_return).
+            DATA(lv_error_text) = CONV string( ls_return-message ).
+
+            " 1. Add to FAILED (Stops the process and flags the line as error)
+            APPEND VALUE #( %tky = VALUE #( companycode    = ls_docs-companycode
+                                            documentnumber = ls_docs-documentnumber
+                                            fiscalyear     = ls_docs-fiscalyear )
+                          ) TO failed-z_fi_einv_tp.
+
+            " 2. Report message to UI
+            APPEND VALUE #( %tky = VALUE #( companycode    = ls_docs-companycode
+                                            documentnumber = ls_docs-documentnumber
+                                            fiscalyear     = ls_docs-fiscalyear )
+                            %msg  = create_split_message( iv_text = lv_error_text )
+                          ) TO reported-z_fi_einv_tp.
+          ENDLOOP.
+        ENDIF.
+        CLEAR:lv_ewb_no,lv_ewb_date,lv_valid_date,lv_ewb_pdf.
+        free : lt_retn.
+
+      ENDLOOP.
+
+      " --- EXECUTE BULK UPDATE VIA EML ---
+      IF lt_update IS NOT INITIAL.
+        MODIFY ENTITIES OF zzeinv_cockpit_i
+          ENTITY zzeinv_cockpit_i
+          UPDATE FIELDS ( ewaybillno ewaystatus ewayerdat vdtodate ewayernam ewaybillpdf flag )
+          WITH lt_update
+          MAPPED DATA(ls_mapped_upd)
+          FAILED DATA(ls_failed_upd)
+          REPORTED DATA(ls_reported_upd).
+      ENDIF.
+
+*      ENDLOOP.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD precheck_GenerateEinvoice.
+
+  if keys is not initial.
+       SELECT billingdocument,
+               billingdocumentitem,
+               taxamount
+        FROM i_billingdocumentitem
+        for all entries in @keys
+        WHERE billingdocument = @keys-documentnumber
+          AND billingquantity NE 0
+        INTO TABLE @DATA(lt_tax).
+
+        if lt_tax is not initial.
+        SELECT billingdocument,
+               billingdocumentitem,
+               conditiontype,
+               conditionamount,
+               conditionratevalue
+          FROM i_billingdocumentitemprcgelmnt
+          FOR ALL ENTRIES IN @lt_tax
+          WHERE billingdocument = @lt_tax-billingdocument
+            AND billingdocumentitem = @lt_tax-billingdocumentitem
+            AND conditioninactivereason = '' " Only active conditions
+            AND conditiontype IN ( 'JOCG','JOSG','JOIG' )
+*          and ConditionAmount gt 0
+          INTO TABLE @DATA(lt_pricing).
+         endif.
+
+
+       loop at keys into data(ls_keys).
+           LOOP AT lt_tax INTO DATA(ls_tax) where BillingDocument = ls_keys-DocumentNumber..
+            READ TABLE lt_pricing INTO DATA(ls_pricing) WITH KEY billingdocument = ls_tax-billingdocument
+                                                                 billingdocumentitem = ls_tax-billingdocumentitem.
+            IF ls_pricing-conditiontype = 'JOCG' OR  ls_pricing-conditiontype = 'JOSG' OR ls_pricing-conditiontype = 'JOIG'." AND ls_fi_doc-sourcemodule = 'SD'..
+
+            ELSE.
+*              CONCATENATE 'There is no tax for.'
+*                          ls_tax-billingdocument 'and item'
+*                          ls_tax-billingdocumentitem
+*                     INTO DATA(lv_text) SEPARATED BY space.
+*
+
+                      APPEND VALUE #( %key = ls_keys-%key ) to failed-z_fi_einv_tp.
+                      APPEND VALUE #( %msg = new_message(   id       = 'ZEINV'
+                                                            number   = '001'
+                                                            severity = if_abap_behv_message=>severity-error
+                                                            v1       = ls_tax-billingdocument
+                                                            v2       = ls_tax-billingdocumentitem )
+                            ) TO reported-z_fi_einv_tp.
+
+              CONTINUE.
+            ENDIF.
+            CLEAR : ls_pricing.
+
+          ENDLOOP.
+     endloop.
+     endif.
 
   ENDMETHOD.
 

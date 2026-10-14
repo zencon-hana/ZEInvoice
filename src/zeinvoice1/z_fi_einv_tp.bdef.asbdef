@@ -19,10 +19,11 @@ authorization master ( instance )
   field ( features : instance ) TransporterId, TransporterName, TransporterDocumentNumber,
   TransporterDocumentDate, TransportationMode, VehicleType,
   TransportationDistance, VehicleNumber;
-  action ( features : instance ) GenerateEinvoice;
+  action ( features : instance,precheck ) GenerateEinvoice;
   action ( features : instance ) DownloadEinvoice result [0..1] ZEWAYPAYLOADDWNLD;
   action ( features : instance ) DownloadEway result [0..1] ZEWAYPAYLOADDWNLD;
   action ( features : instance ) CancelEinvoice deep parameter Z_EINV_CANCEL_ST;
   action ( features : instance ) UpdtTransdtl deep parameter Z_EINV_EXPORT_ST { default function GetDefaultsForTransport; }
   action ( features : instance ) GenerateEwayBill;
+  action ( features : instance ) GeneratePartB;
 }

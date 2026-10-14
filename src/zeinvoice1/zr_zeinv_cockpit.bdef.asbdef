@@ -1,0 +1,85 @@
+managed implementation in class ZBP_R_ZEINV_COCKPIT unique;
+strict ( 2 );
+with draft;
+extensible;
+define behavior for ZR_ZEINV_COCKPIT alias ZrZeinvCockpit
+persistent table ZZEINV_COCKPIT
+extensible
+draft table ZZEINV_COCKPIT_D
+etag master LocalLastChangedAt
+lock master total etag LastChangedAtRap
+authorization master( global )
+{
+  field ( mandatory : create )
+   Bukrs,
+   Docno,
+   DocYear,
+   DocType;
+
+  field ( readonly )
+   LocalLastChangedAt,
+   LastChangedAtRap;
+
+  field ( readonly : update )
+   Bukrs,
+   Docno,
+   DocYear,
+   DocType;
+
+
+  create;
+  update;
+  delete;
+
+  draft action Activate optimized;
+  draft action Discard;
+  draft action Edit;
+  draft action Resume;
+  draft determine action Prepare;
+
+  mapping for ZZEINV_COCKPIT corresponding extensible
+  {
+    Bukrs = BUKRS;
+    Docno = DOCNO;
+    DocYear = DOC_YEAR;
+    DocType = DOC_TYPE;
+    Odn = ODN;
+    Irn = IRN;
+    Version = VERSION;
+    Bupla = BUPLA;
+    OdnDate = ODN_DATE;
+    AckNo = ACK_NO;
+    AckDate = ACK_DATE;
+    IrnStatus = IRN_STATUS;
+    CancelDate = CANCEL_DATE;
+    EinvErnam = EINV_ERNAM;
+    EinvErdat = EINV_ERDAT;
+    SignedInv = SIGNED_INV;
+    SignedQrcode = SIGNED_QRCODE;
+    Qrcodeurl = QRCODEURL;
+    Einvoicepdf = EINVOICEPDF;
+    EgenDat = EGEN_DAT;
+    Vdtodate = VDTODATE;
+    EwayErnam = EWAY_ERNAM;
+    EwayErdat = EWAY_ERDAT;
+    EwayBillNo = EWAY_BILL_NO;
+    EwayStatus = EWAY_STATUS;
+    EwayCancelDate = EWAY_CANCEL_DATE;
+    Ewaybillpdf = EWAYBILLPDF;
+    TransporterID = TRANSPORTER_ID;
+    TransporterName = TRANSPORTER_NAME;
+    TransporterDocumentNumber = TRANSPORTER_DOCUMENT_NUMBER;
+    TransporterDocumentDate = TRANSPORTER_DOCUMENT_DATE;
+    TransportationMode = TRANSPORTATION_MODE;
+    VehicleType = VEHICLE_TYPE;
+    TransportationDistance = TRANSPORTATION_DISTANCE;
+    VehicleNumber = VEHICLE_NUMBER;
+    Flag = FLAG;
+    CreatedAt = CREATED_AT;
+    LastChangedBy = LAST_CHANGED_BY;
+    LastChangedAt = LAST_CHANGED_AT;
+    LocalLastChangedAt = LOCAL_LAST_CHANGED_AT;
+    LastChangedAtRap = LAST_CHANGED_AT_RAP;
+  }
+
+}

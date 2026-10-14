@@ -16,6 +16,7 @@ define root view entity ZZEINV_COCKPIT_I
       odn_date                    as OdnDate,
       ack_no                      as AckNo,
       ack_date                    as AckDate,
+      ack_time                    as AckTime,
       irn_status                  as IrnStatus,
       cancel_date                 as CancelDate,
       einv_ernam                  as EinvErnam,
@@ -39,5 +40,6 @@ define root view entity ZZEINV_COCKPIT_I
       transportation_mode         as TransportationMode,
       vehicle_type                as VehicleType,
       transportation_distance     as TransportationDistance,
-      vehicle_number              as VehicleNumber
+      vehicle_number              as VehicleNumber,
+      flag                        as flag
 }

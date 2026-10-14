@@ -1,0 +1,6 @@
+@EndUserText.label: 'ZR_ZEINV_COCKPIT'
+@MappingRole: true
+define role ZR_ZEINV_COCKPIT {
+  grant select on ZR_ZEINV_COCKPIT
+  where TRUE;
+}
